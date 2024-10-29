@@ -1,6 +1,4 @@
 #include "hint_basic.hpp"
-#include <immintrin.h>
-#include <chrono>
 
 #ifndef HINT_ARITHM_HPP
 #define HINT_ARITHM_HPP
@@ -126,25 +124,34 @@ namespace hint
                 return abs_compare_with_length(in1, len1, in2, len2).cmp;
             }
 
+            // 二进制移位,shift小于字的位数,输入输出可以为相同指针
             template <typename WordTy>
             constexpr WordTy lshift_in_word_half(const WordTy in[], size_t len, WordTy out[], int shift)
             {
                 constexpr int WORD_BITS = sizeof(WordTy) * CHAR_BIT;
                 assert(shift >= 0 && shift < WORD_BITS);
-                WordTy last = 0;
+                if (0 == len)
+                {
+                    return 0;
+                }
                 if (0 == shift)
                 {
                     std::copy(in, in + len, out);
-                    return last;
+                    return 0;
                 }
-                int shift_rem = WORD_BITS - shift;
-                for (size_t i = 0; i < len; i++)
+                // [n,last] -> [?,n >> shift_rem | last << shift]
+                WordTy last = in[len - 1], ret = last;
+                const int shift_rem = WORD_BITS - shift;
+                size_t i = len - 1;
+                while (i > 0)
                 {
+                    i--;
                     WordTy n = in[i];
-                    out[i] = (n << shift) | (last >> shift_rem);
+                    out[i + 1] = (last << shift) | (n >> shift_rem);
                     last = n;
                 }
-                return last >> shift_rem;
+                out[0] = last << shift;
+                return ret >> shift_rem;
             }
             template <typename WordTy>
             constexpr void lshift_in_word(const WordTy in[], size_t len, WordTy out[], int shift)
@@ -153,7 +160,7 @@ namespace hint
                 {
                     return;
                 }
-                assert(shift >= 0 && shift < sizeof(WordTy) * CHAR_BIT);
+                assert(shift >= 0 && size_t(shift) < sizeof(WordTy) * CHAR_BIT);
                 uint64_t last = lshift_in_word_half(in, len, out, shift);
                 out[len] = last;
             }
@@ -167,14 +174,13 @@ namespace hint
                 }
                 constexpr int WORD_BIT = sizeof(WordTy) * CHAR_BIT;
                 size_t block_shift = shift / WORD_BIT, in_word_shift = shift % WORD_BIT;
-                std::fill_n(out, block_shift, WordTy{});
                 if (0 == in_word_shift)
                 {
                     std::copy(in, in + len, out + block_shift);
                     return;
                 }
-                std::fill_n(out, block_shift, WordTy{});
                 lshift_in_word(in, len, out + block_shift, in_word_shift);
+                std::fill_n(out, block_shift, WordTy{});
             }
 
             template <typename WordTy>
@@ -190,9 +196,9 @@ namespace hint
                     std::copy(in, in + len, out);
                     return;
                 }
-                assert(shift >= 0 && shift < sizeof(WordTy) * CHAR_BIT);
+                assert(shift >= 0 && size_t(shift) < sizeof(WordTy) * CHAR_BIT);
                 WordTy last = in[0];
-                int shift_rem = WORD_BITS - shift;
+                const int shift_rem = WORD_BITS - shift;
                 for (size_t i = 1; i < len; i++)
                 {
                     WordTy n = in[i];
@@ -230,60 +236,6 @@ namespace hint
                 return l_len - r_len + 1;
             }
 
-            template <typename Int128Ty>
-            class DivSupporter64
-            {
-                uint64_t divisor = 0;
-                uint64_t inv = 0;
-                int shift = 0;
-
-            public:
-                constexpr DivSupporter64(uint64_t divisor_in) : divisor(divisor_in)
-                {
-                    inv = getInv(divisor, shift);
-                    divisor <<= shift;
-                }
-                // Return dividend / divisor, dividend %= divisor
-                uint64_t divMod(Int128Ty &dividend) const
-                {
-                    dividend <<= shift;
-                    uint64_t r = uint64_t(dividend);
-                    dividend = (dividend >> 64) * inv + dividend;
-                    uint64_t q1 = uint64_t(dividend >> 64) + 1;
-                    r -= q1 * divisor;
-                    if (r > uint64_t(dividend))
-                    {
-                        q1--;
-                        r += divisor;
-                    }
-                    if (r >= divisor)
-                    {
-                        q1++;
-                        r -= divisor;
-                    }
-                    dividend = r >> shift;
-                    return q1;
-                }
-                uint64_t div(Int128Ty dividend) const
-                {
-                    return divMod(dividend);
-                }
-                uint64_t mod(Int128Ty dividend) const
-                {
-                    divMod(dividend);
-                    return dividend;
-                }
-
-                static constexpr uint64_t getInv(uint64_t divisor, int &leading_zero)
-                {
-                    constexpr uint64_t MAX = UINT64_MAX;
-                    leading_zero = hint::hint_clz(divisor);
-                    divisor <<= leading_zero;
-                    Int128Ty x = Int128Ty(MAX - divisor) << 64;
-                    return uint64_t((x + MAX) / divisor);
-                }
-            };
-
             template <typename NumTy, typename ProdTy>
             class DivSupporter
             {
@@ -293,10 +245,11 @@ namespace hint
                 int shift = 0;
                 enum : int
                 {
-                    NUM_BITS = sizeof(NumTy) * CHAR_BIT;
+                    NUM_BITS = sizeof(NumTy) * CHAR_BIT
                 };
 
-            public : constexpr DivSupporter(NumTy divisor_in) : divisor(divisor_in)
+            public:
+                constexpr DivSupporter(NumTy divisor_in) : divisor(divisor_in)
                 {
                     inv = getInv(divisor, shift);
                     divisor <<= shift;
@@ -345,17 +298,66 @@ namespace hint
             template <typename NumTy>
             class BaseExecutor
             {
-            public:
-                constexpr BaseExecutor(NumTy divisor_in) : divisor(divisor_in), div_supporter(divisor_in) {}
-
-                
-
             private:
-                using DivSupporterTy = DivSupporter<NumTy, NumTy>;
-                NumTy divisor;
+                static constexpr int NUM_BIT = sizeof(NumTy) * CHAR_BIT;
+                using ProdTy = typename UintType<NUM_BIT>::NextTy::Type;
+                using SignTy = typename UintType<NUM_BIT>::SignType;
+                using DivSupporterTy = DivSupporter<NumTy, ProdTy>;
+                NumTy base;
                 DivSupporterTy div_supporter;
-            };
 
+            public:
+                constexpr BaseExecutor(NumTy base_in) : base(base_in), div_supporter(base_in) {}
+
+                constexpr NumTy addCarry(NumTy a, NumTy b, bool &cf) const
+                {
+                    a = a + b + cf;
+                    cf = (a >= base);
+                    if (cf)
+                    {
+                        a -= base;
+                    }
+                    return a;
+                }
+                constexpr NumTy addHalf(NumTy a, NumTy b, bool &cf) const
+                {
+                    a = a + b;
+                    cf = (a >= base);
+                    if (cf)
+                    {
+                        a -= base;
+                    }
+                    return a;
+                }
+
+                constexpr NumTy subBorrow(SignTy a, SignTy b, bool &bf) const
+                {
+                    a = a - b - bf;
+                    bf = (a < 0);
+                    if (bf)
+                    {
+                        a += base;
+                    }
+                    return a;
+                }
+                constexpr NumTy subHalf(SignTy a, SignTy b, bool &bf) const
+                {
+                    a = a - b;
+                    bf = (a < 0);
+                    if (bf)
+                    {
+                        a += base;
+                    }
+                    return a;
+                }
+
+                NumTy divMod(ProdTy &dividend) const
+                {
+                    return div_supporter.divMod(dividend);
+                }
+            };
+            template <typename NumTy>
+            constexpr int BaseExecutor<NumTy>::NUM_BIT;
         }
 
         namespace addition_binary
@@ -394,7 +396,15 @@ namespace hint
             constexpr bool abs_sub_binary(const UintTy a[], size_t len_a, const UintTy b[], size_t len_b, UintTy diff[])
             {
                 bool borrow = false;
-                size_t i = 0, min_len = std::min(len_a, len_b);
+                size_t i = 0, min_len = std::min(len_a, len_b), rem_len = min_len - min_len % 4;
+                for (; i < rem_len; i += 4)
+                {
+                    diff[i] = sub_borrow(a[i], b[i], borrow);
+                    diff[i + 1] = sub_borrow(a[i + 1], b[i + 1], borrow);
+                    diff[i + 2] = sub_borrow(a[i + 2], b[i + 2], borrow);
+                    diff[i + 3] = sub_borrow(a[i + 3], b[i + 3], borrow);
+                }
+                // borrow = bf != 0;
                 for (; i < min_len; i++)
                 {
                     diff[i] = sub_borrow(a[i], b[i], borrow);
@@ -504,6 +514,43 @@ namespace hint
         namespace multiplication
         {
             using namespace addition_binary;
+
+            inline uint64_t abs_mul_add_num64_half(const uint64_t in[], size_t len, uint64_t out[], uint64_t num_add, uint64_t num_mul)
+            {
+                size_t i = 0;
+                uint64_t prod_lo, prod_hi;
+                for (const size_t rem_len = len - len % 4; i < rem_len; i += 4)
+                {
+                    mul64x64to128(in[i], num_mul, prod_lo, prod_hi);
+                    prod_lo += num_add;
+                    out[i] = prod_lo;
+                    num_add = prod_hi + (prod_lo < num_add);
+
+                    mul64x64to128(in[i + 1], num_mul, prod_lo, prod_hi);
+                    prod_lo += num_add;
+                    out[i + 1] = prod_lo;
+                    num_add = prod_hi + (prod_lo < num_add);
+
+                    mul64x64to128(in[i + 2], num_mul, prod_lo, prod_hi);
+                    prod_lo += num_add;
+                    out[i + 2] = prod_lo;
+                    num_add = prod_hi + (prod_lo < num_add);
+
+                    mul64x64to128(in[i + 3], num_mul, prod_lo, prod_hi);
+                    prod_lo += num_add;
+                    out[i + 3] = prod_lo;
+                    num_add = prod_hi + (prod_lo < num_add);
+                }
+                for (; i < len; i++)
+                {
+                    mul64x64to128(in[i], num_mul, prod_lo, prod_hi);
+                    prod_lo += num_add;
+                    out[i] = prod_lo;
+                    num_add = prod_hi + (prod_lo < num_add);
+                }
+                return num_add;
+            }
+
             /// @brief 2^64 base long integer multiply 64bit number, add another 64bit number to product.
             /// @param in Input long integer.
             /// @param len Length of input long integer.
@@ -512,23 +559,18 @@ namespace hint
             /// @param num_mul The 64 bit number to multiply.
             inline void abs_mul_add_num64(const uint64_t in[], size_t len, uint64_t out[], uint64_t num_add, uint64_t num_mul)
             {
-                for (size_t i = 0; i < len; i++)
-                {
-                    Uint128 prod = Uint128(in[i]) * num_mul + num_add;
-                    out[i] = uint64_t(prod);
-                    num_add = prod.high64();
-                }
-                out[len] = num_add;
+                out[len] = abs_mul_add_num64_half(in, len, out, num_add, num_mul);
             }
 
             // in * num_mul + in_out -> in_out
             inline void mul64_sub_proc(const uint64_t in[], size_t len, uint64_t in_out[], uint64_t num_mul)
             {
-                uint64_t carry = 0, prod_lo, prod_hi;
-                bool cf;
-                size_t rem_len = len - len % 4, i = 0;
-                for (; i < rem_len; i += 4)
+                uint64_t carry = 0;
+                size_t i = 0;
+                for (const size_t rem_len = len - len % 2; i < rem_len; i += 2)
                 {
+                    bool cf;
+                    uint64_t prod_lo, prod_hi;
                     mul64x64to128(in[i], num_mul, prod_lo, prod_hi);
                     prod_lo = add_half(prod_lo, in_out[i], cf);
                     prod_hi += cf;
@@ -555,6 +597,8 @@ namespace hint
                 }
                 for (; i < len; i++)
                 {
+                    bool cf;
+                    uint64_t prod_lo, prod_hi;
                     mul64x64to128(in[i], num_mul, prod_lo, prod_hi);
                     prod_lo = add_half(prod_lo, in_out[i], cf);
                     prod_hi += cf;
@@ -1495,12 +1539,13 @@ namespace hint
             inline uint64_t abs_div_rem_num64(const uint64_t in[], size_t len, uint64_t out[], uint64_t divisor)
             {
                 uint64_t hi64 = 0;
+                const DivSupporter<uint64_t, Uint128> divisor_supporter(divisor);
                 while (len > 0)
                 {
                     len--;
                     Uint128 n(in[len], hi64);
-                    hi64 = n.selfDivRem(divisor);
-                    out[len] = uint64_t(n);
+                    out[len] = divisor_supporter.divMod(n);
+                    hi64 = uint64_t(divisor);
                 }
                 return hi64;
             }
@@ -1523,7 +1568,7 @@ namespace hint
                     factor *= 2;
                     first *= 2;
                 }
-                const DivSupporter64<Uint128> base_supporter(base);
+                const DivSupporter<uint64_t, Uint128> base_supporter(base);
                 uint64_t carry = 0;
                 for (size_t i = 0; i < len; i++)
                 {
@@ -1599,7 +1644,7 @@ namespace hint
                 }
                 const uint64_t divisor_1 = divisor[divisor_len - 1];
                 const uint64_t divisor_0 = divisor[divisor_len - 2];
-                const DivSupporter64<Uint128> div(divisor_1);
+                const DivSupporter<uint64_t, Uint128> div(divisor_1);
                 size_t i = dividend_len - divisor_len;
                 while (i > 0)
                 {
@@ -1619,7 +1664,7 @@ namespace hint
                         qhat = div.divMod(dividend_num);
                         rhat = uint64_t(dividend_num);
                     }
-                    {
+                    { // 3 words / 2 words refine
                         dividend_num = Uint128(dividend[divisor_len + i - 2], rhat);
                         Uint128 prod = Uint128(divisor_0) * qhat;
                         if (prod > dividend_num)
@@ -1639,7 +1684,7 @@ namespace hint
                         auto rem = dividend + i;
                         abs_mul_add_num64(divisor, divisor_len, prod, 0, qhat);
                         size_t len_prod = count_ture_length(prod, divisor_len + 1);
-                        size_t len_rem = count_ture_length(dividend + i, divisor_len + 1);
+                        size_t len_rem = count_ture_length(rem, divisor_len + 1);
                         int count = 0;
                         while (abs_compare(prod, len_prod, rem, len_rem) > 0)
                         {
@@ -1691,7 +1736,7 @@ namespace hint
                 }
                 assert(divisor_len > 0);
                 assert(divisor[divisor_len - 1] >= uint64_t(1) << 63); // 除数最高位为1
-                if (divisor_len <= 16 || (dividend_len <= divisor_len + 8))
+                if (divisor_len <= 32 || (dividend_len <= divisor_len + 16))
                 {
                     abs_div64_classic_core(dividend, dividend_len, divisor, divisor_len, quotient, work_begin, work_end);
                     return;
@@ -1770,18 +1815,9 @@ namespace hint
                 }
             }
 
-            // BASE = 2^64,out = BASE ^ （2 * in_len） / in, out_len = in_len + 2
-            inline void abs_reciprocal64(const uint64_t in[], size_t in_len, uint64_t out[])
+            // BASE = 2^64,BASE ^ base_len / in
+            inline void abs_reciprocal64(const uint64_t in[], size_t in_len, size_t base_len, uint64_t out[])
             {
-                assert(in_len > 0);
-                if (in_len <= 4)
-                {
-                    return;
-                }
-                size_t shift_len = in_len / 2 - 1, out_len = in_len + 2, last_out_len = in_len + 1;
-                abs_reciprocal64(in + shift_len, in_len - shift_len, out + shift_len);
-                std::vector<uint64_t> prod(out_len * 2), rem(out_len);
-                lshift_in_word_half(out + shift_len, out_len - shift_len, out + shift_len, 1); // 乘以2
             }
 
             inline void abs_div64(uint64_t dividend[], size_t dividend_len, const uint64_t divisor[], size_t divisor_len, uint64_t quotient[])

@@ -820,6 +820,7 @@ namespace hint
             static constexpr int MAX_BITS = 128;
             static constexpr int MIN_BITS = 8;
             static constexpr int NORM_BITS = hint::int_ceil2(std::min(MAX_BITS, std::max(MIN_BITS, BITS)));
+            using SignType = typename Uint<NORM_BITS>::SignType;
             using Type = typename Uint<NORM_BITS>::Type;
         };
 
@@ -833,24 +834,28 @@ namespace hint
         template <>
         struct Uint<8>
         {
+            using SignType = int8_t;
             using Type = uint8_t;
         };
 
         template <>
         struct Uint<16>
         {
+            using SignType = int16_t;
             using Type = uint16_t;
         };
 
         template <>
         struct Uint<32>
         {
+            using SignType = int32_t;
             using Type = uint32_t;
         };
 
         template <>
         struct Uint<64>
         {
+            using SignType = int64_t;
             using Type = uint64_t;
         };
 
@@ -874,7 +879,10 @@ namespace hint
             static constexpr int NORM_BITS = hint::int_ceil2(std::min(MAX_BITS, std::max(MIN_BITS, BITS)));
             static constexpr int NEXT_BITS = std::min(MAX_BITS, NORM_BITS * 2);
             static constexpr int LAST_BITS = std::max(MIN_BITS, NORM_BITS / 2);
+
+            using SignType = typename Uint<NORM_BITS>::SignType;
             using Type = typename Uint<NORM_BITS>::Type;
+
             using NextType = UintType<NEXT_BITS>;
             using LastType = UintType<LAST_BITS>;
         };
