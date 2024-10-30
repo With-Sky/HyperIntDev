@@ -300,7 +300,7 @@ namespace hint
             {
             private:
                 static constexpr int NUM_BIT = sizeof(NumTy) * CHAR_BIT;
-                using ProdTy = typename UintType<NUM_BIT>::NextTy::Type;
+                using ProdTy = typename UintType<NUM_BIT>::NextType::Type;
                 using SignTy = typename UintType<NUM_BIT>::SignType;
                 using DivSupporterTy = DivSupporter<NumTy, ProdTy>;
                 NumTy base;
@@ -363,6 +363,91 @@ namespace hint
         namespace addition_binary
         {
             using namespace support;
+
+            template <typename NumTy, typename Executor>
+            constexpr bool abs_add_long(const NumTy a[], const NumTy b[], size_t len, NumTy sum[], const Executor &exec)
+            {
+                bool carry = false;
+                size_t i = 0;
+                for (const size_t rem_len = len - len % 4; i < rem_len; i += 4)
+                {
+                    sum[i] = exec.addCarry(a[i], b[i], carry);
+                    sum[i + 1] = exec.addCarry(a[i + 1], b[i + 1], carry);
+                    sum[i + 2] = exec.addCarry(a[i + 2], b[i + 2], carry);
+                    sum[i + 3] = exec.addCarry(a[i + 3], b[i + 3], carry);
+                }
+                for (; i < len; i++)
+                {
+                    sum[i] = exec.addCarry(a[i], b[i], carry);
+                }
+                return carry;
+            }
+
+            template <typename NumTy, typename Executor>
+            constexpr bool abs_add_long_num(const NumTy a[], size_t len, NumTy num, NumTy sum[], const Executor &exec)
+            {
+                assert(len > 0);
+                bool carry = false;
+                sum[0] = exec.addHalf(a[0], num, carry);
+                for (size_t i = 1; i < len; i++)
+                {
+                    sum[i] = exec.addHalf(a[i], NumTy(carry), carry);
+                }
+                return carry;
+            }
+
+            template <typename NumTy, typename Executor>
+            constexpr bool abs_add_long_long(const NumTy a[], size_t len_a, const NumTy b[], size_t len_b, NumTy sum[], const Executor &exec)
+            {
+                if (len_a < len_b)
+                {
+                    std::swap(a, b);
+                    std::swap(len_a, len_b);
+                }
+                bool carry = abs_add_long(a, b, len_b, sum, exec);
+                if (len_a > len_b)
+                {
+                    carry = abs_add_long_num(a + len_b, len_a - len_b, NumTy(carry), sum + len_b, exec);
+                }
+                return carry;
+            }
+
+            template <typename NumTy, typename Executor>
+            constexpr bool abs_sub_long(const NumTy a[], const NumTy b[], size_t len, NumTy diff[], const Executor &exec)
+            {
+                bool borrow = false;
+                for (size_t i = 0; i < len; i++)
+                {
+                    diff[i] = exec.subBorrow(a[i], b[i], borrow);
+                }
+                return borrow;
+            }
+
+            template <typename NumTy, typename Executor>
+            constexpr bool abs_sub_long_num(const NumTy a[], size_t len, NumTy num, NumTy diff[], const Executor &exec)
+            {
+                assert(len > 0);
+                bool borrow = false;
+                diff[0] = exec.subHalf(a[0], num, borrow);
+                for (size_t i = 1; i < len; i++)
+                {
+                    diff[i] = exec.subHalf(a[i], NumTy(borrow), borrow);
+                }
+                return borrow;
+            }
+
+            template <typename NumTy, typename Executor>
+            constexpr bool abs_sub_long_long(const NumTy a[], size_t len_a, const NumTy b[], size_t len_b, NumTy diff[], const Executor &exec)
+            {
+                assert(len_a >= len_b);
+                bool borrow = abs_sub_long(a, b, len_b, diff, exec);
+                if (len_a > len_b)
+                {
+                    borrow = abs_sub_long_num(a + len_b, len_a - len_b, NumTy(borrow), diff + len_b, exec);
+                }
+                return borrow;
+            }
+
             // Binary absolute addtion a+b=sum, return the carry
             template <typename UintTy>
             constexpr bool abs_add_binary_half(const UintTy a[], size_t len_a, const UintTy b[], size_t len_b, UintTy sum[])

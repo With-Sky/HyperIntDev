@@ -1,7 +1,7 @@
 #ifndef HINT_DECIMAL_HPP
 #define HINT_DECIMAL_HPP
 #include "hint_arithm.hpp"
-
+#include <chrono>
 namespace hint
 {
     template <typename WordTy>
@@ -71,6 +71,30 @@ namespace hint
             return str;
         }
 
+        void shrinkLeadingZeros()
+        {
+            size_t len = wordLen();
+            while (len > 0 && data[len - 1] == 0)
+            {
+                len--;
+            }
+            data.resize(len);
+        }
+
+        size_t wordLen() const
+        {
+            return data.size();
+        }
+
+        HyperDecimal operator+(const HyperDecimal &other) const
+        {
+            HyperDecimal res;
+            res.data.resize(std::max(wordLen(), other.wordLen()) + 1);
+            hint::arithm::addition_binary::abs_add_long_long(data.data(), wordLen(), other.data.data(), other.wordLen(), res.data.data(), BASE_EXECUTOR);
+            res.shrinkLeadingZeros();
+            return res;
+        }
+
     private:
         using Word = uint64_t;
         using DataVector = std::vector<uint64_t>;
@@ -137,16 +161,13 @@ namespace hint
 
         static constexpr int BASE_DIGITS = getBaseDigits<Word>();
         static constexpr Word BASE = hint::qpow<Word>(10, BASE_DIGITS);
-
-        size_t wordLen() const
-        {
-            return data.size();
-        }
+        static constexpr hint::arithm::support::BaseExecutor<Word> BASE_EXECUTOR = hint::arithm::support::BaseExecutor<Word>(BASE);
 
         DataVector data;
     };
 
     constexpr int HyperDecimal::BASE_DIGITS;
     constexpr HyperDecimal::Word HyperDecimal::BASE;
+    constexpr hint::arithm::support::BaseExecutor<HyperDecimal::Word> HyperDecimal::BASE_EXECUTOR;
 }
 #endif

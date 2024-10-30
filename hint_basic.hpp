@@ -862,6 +862,7 @@ namespace hint
         template <>
         struct Uint<128>
         {
+            using SignType = Uint128Default;
             using Type = Uint128Default;
         };
 
