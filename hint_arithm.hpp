@@ -242,7 +242,7 @@ namespace hint
             private:
                 NumTy divisor = 0;
                 NumTy inv = 0;
-                int shift = 0;
+                int shift = 0, shift1 = 0, shift2 = 0;
                 enum : int
                 {
                     NUM_BITS = sizeof(NumTy) * CHAR_BIT
@@ -253,6 +253,8 @@ namespace hint
                 {
                     inv = getInv(divisor, shift);
                     divisor <<= shift;
+                    shift1 = shift / 2;
+                    shift2 = shift - shift1;
                 }
                 // Return dividend / divisor, dividend %= divisor
                 NumTy divMod(ProdTy &dividend) const
@@ -275,6 +277,27 @@ namespace hint
                     dividend = r >> shift;
                     return q1;
                 }
+
+                void prodDivMod(NumTy a, NumTy b, NumTy &quot, NumTy &rem) const
+                {
+                    ProdTy dividend = ProdTy(a << shift1) * (b << shift2);
+                    rem = NumTy(dividend);
+                    dividend = (dividend >> NUM_BITS) * inv + dividend;
+                    quot = NumTy(dividend >> NUM_BITS) + 1;
+                    rem -= quot * divisor;
+                    if (rem > NumTy(dividend))
+                    {
+                        quot--;
+                        rem += divisor;
+                    }
+                    if (rem >= divisor)
+                    {
+                        quot++;
+                        rem -= divisor;
+                    }
+                    rem >>= shift;
+                }
+
                 NumTy div(ProdTy dividend) const
                 {
                     return divMod(dividend);
@@ -295,18 +318,15 @@ namespace hint
                 }
             };
 
-            template <typename NumTy>
+            template <typename T>
             class BaseExecutor
             {
-            private:
+
+            public:
+                using NumTy = T;
                 static constexpr int NUM_BIT = sizeof(NumTy) * CHAR_BIT;
                 using ProdTy = typename UintType<NUM_BIT>::NextType::Type;
                 using SignTy = typename UintType<NUM_BIT>::SignType;
-                using DivSupporterTy = DivSupporter<NumTy, ProdTy>;
-                NumTy base;
-                DivSupporterTy div_supporter;
-
-            public:
                 constexpr BaseExecutor(NumTy base_in) : base(base_in), div_supporter(base_in) {}
 
                 constexpr NumTy addCarry(NumTy a, NumTy b, bool &cf) const
@@ -351,13 +371,50 @@ namespace hint
                     return a;
                 }
 
-                NumTy divMod(ProdTy &dividend) const
+                void mulInBase(NumTy a, NumTy b, NumTy &hi, NumTy &lo) const
+                {
+                    div_supporter.prodDivMod(a, b, hi, lo);
+                }
+
+                NumTy divModBase(ProdTy &dividend) const
                 {
                     return div_supporter.divMod(dividend);
                 }
+
+            private:
+                using DivSupporterTy = DivSupporter<NumTy, ProdTy>;
+                NumTy base;
+                DivSupporterTy div_supporter;
             };
             template <typename NumTy>
             constexpr int BaseExecutor<NumTy>::NUM_BIT;
+
+            class BaseExecutorBinary
+            {
+            public:
+                template <typename UintTy>
+                static constexpr UintTy addHalf(UintTy a, UintTy b, bool &cf)
+                {
+                    a = a + b;
+                    cf = (a < b);
+                    return a;
+                }
+
+                template <typename UintTy>
+                static void mulInBase(UintTy a, UintTy b, UintTy &hi, UintTy &lo)
+                {
+                    constexpr int NUM_BIT = sizeof(UintTy) * CHAR_BIT;
+                    using ProdTy = typename UintType<NUM_BIT>::NextType::Type;
+                    ProdTy prod = ProdTy(a) * b;
+                    hi = UintTy(prod >> NUM_BIT);
+                    lo = UintTy(prod);
+                }
+
+                static void mulInBase(uint64_t a, uint64_t b, uint64_t &hi, uint64_t &lo)
+                {
+                    hint::extend_int::mul64x64to128(a, b, lo, hi);
+                }
+            };
         }
 
         namespace addition_binary
@@ -652,7 +709,7 @@ namespace hint
             {
                 uint64_t carry = 0;
                 size_t i = 0;
-                for (const size_t rem_len = len - len % 2; i < rem_len; i += 2)
+                for (const size_t rem_len = len - len % 4; i < rem_len; i += 4)
                 {
                     bool cf;
                     uint64_t prod_lo, prod_hi;
@@ -735,6 +792,81 @@ namespace hint
                 }
                 std::copy(out_temp, out_temp + work_size, out);
                 std::fill(out + work_size, out + out_len, uint64_t(0));
+            }
+
+            // in * num_mul + in_out -> in_out
+            template <typename NumTy, typename Executor>
+            inline void abs_add_long_mul_long_num(const NumTy in[], size_t len, NumTy in_out[], NumTy num_mul, const Executor &exec)
+            {
+                auto mulAdd = [num_mul, exec](const NumTy in1, NumTy &out, NumTy &carry)
+                {
+                    bool cf;
+                    NumTy hi, lo;
+                    exec.mulInBase(in1, num_mul, hi, lo);
+                    lo = exec.addHalf(lo, out, cf);
+                    hi += cf;
+                    out = exec.addHalf(lo, carry, cf);
+                    carry = hi + cf;
+                };
+                NumTy carry = 0;
+                size_t i = 0;
+                for (const size_t rem_len = len - len % 4; i < rem_len; i += 4)
+                {
+                    mulAdd(in[i], in_out[i], carry);
+                    mulAdd(in[i + 1], in_out[i + 1], carry);
+                    mulAdd(in[i + 2], in_out[i + 2], carry);
+                    mulAdd(in[i + 3], in_out[i + 3], carry);
+                }
+                for (; i < len; i++)
+                {
+                    mulAdd(in[i], in_out[i], carry);
+                }
+                in_out[len] = carry;
+            }
+
+            // 小学乘法
+            template <typename NumTy, typename Executor>
+            inline void abs_mul_classic(const NumTy in1[], size_t len1, const NumTy in2[], size_t len2, NumTy out[], const Executor &exec, NumTy *work_begin = nullptr, NumTy *work_end = nullptr)
+            {
+                const size_t out_len = get_mul_len(len1, len2);
+                remove_leading_zeros(in1, len1);
+                remove_leading_zeros(in2, len2);
+                if (len1 < len2)
+                {
+                    std::swap(in1, in2);
+                    std::swap(len1, len2); // Let in1 be the loonger one
+                }
+                if (0 == len2 || nullptr == in1 || nullptr == in2)
+                {
+                    std::fill_n(out, out_len, NumTy(0));
+                    return;
+                }
+                if (1 == len2)
+                {
+                    // abs_add(in1, len1, out, 0, in2[0]);
+                    return;
+                }
+                // Get enough work memory
+                std::vector<NumTy> work_mem;
+                const size_t work_size = get_mul_len(len1, len2);
+                if (work_begin + work_size > work_end)
+                {
+                    work_mem.resize(work_size);
+                    work_begin = work_mem.data();
+                    work_end = work_begin + work_mem.size();
+                }
+                else
+                {
+                    // Clear work_mem that may used
+                    std::fill_n(work_begin, work_size, NumTy(0));
+                }
+                auto out_temp = work_begin;
+                for (size_t i = 0; i < len1; i++)
+                {
+                    abs_add_long_mul_long_num(in2, len2, out_temp + i, in1[i], exec);
+                }
+                std::copy(out_temp, out_temp + work_size, out);
+                std::fill(out + work_size, out + out_len, NumTy(0));
             }
 
             inline void mul_check(const uint64_t in1[], size_t len1, const uint64_t in2[], size_t len2, const uint64_t out[])

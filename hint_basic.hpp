@@ -808,6 +808,7 @@ namespace hint
         {
             return n.high64();
         }
+// #undef UINT128T
 #ifdef UINT128T
         using Uint128Default = __uint128_t;
 #else
