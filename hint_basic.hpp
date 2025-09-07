@@ -23,9 +23,9 @@
 #endif //_WIN64
 
 // GCC 64bit fast multiply macro.
-#if defined(__SIZEOF_INT128__)
+#if defined(_INT128_DEFINED)
 #define UINT128T
-#endif //__SIZEOF_INT128__
+#endif //_INT128_DEFINED
 
 namespace hint
 {
@@ -95,7 +95,7 @@ namespace hint
     template <typename IntTy>
     constexpr int hint_bit_length(IntTy x)
     {
-        if (x == 0)
+        if (0 == x)
         {
             return 0;
         }
@@ -206,51 +206,11 @@ namespace hint
         return n + 1;
     }
 
-    // x + y = sum with carry
-    template <typename UintTy>
-    constexpr UintTy add_half(UintTy x, UintTy y, bool &cf)
-    {
-        x = x + y;
-        cf = (x < y);
-        return x;
-    }
-
-    // x - y = diff with borrow
-    template <typename UintTy>
-    constexpr UintTy sub_half(UintTy x, UintTy y, bool &bf)
-    {
-        y = x - y;
-        bf = (y > x);
-        return y;
-    }
-
-    // x + y + cf = sum with carry
-    template <typename UintTy>
-    constexpr UintTy add_carry(UintTy x, UintTy y, bool &cf)
-    {
-        UintTy sum = x + cf;
-        cf = (sum < x);
-        sum += y;             // carry
-        cf = cf || (sum < y); // carry
-        return sum;
-    }
-
-    // x - y - bf = diff with borrow
-    template <typename UintTy>
-    constexpr UintTy sub_borrow(UintTy x, UintTy y, bool &bf)
-    {
-        UintTy diff = x - bf;
-        bf = (diff > x);
-        y = diff - y;          // borrow
-        bf = bf || (y > diff); // borrow
-        return y;
-    }
-
     // a * x + b * y = gcd(a,b)
     template <typename IntTy>
     constexpr IntTy exgcd(IntTy a, IntTy b, IntTy &x, IntTy &y)
     {
-        if (b == 0)
+        if (0 == b)
         {
             x = 1;
             y = 0;
@@ -307,6 +267,45 @@ namespace hint
 
     namespace extend_int
     {
+        // x + y = sum with carry
+        template <typename UintTy>
+        constexpr UintTy add_half(UintTy x, UintTy y, bool &cf)
+        {
+            x = x + y;
+            cf = (x < y);
+            return x;
+        }
+
+        // x - y = diff with borrow
+        template <typename UintTy>
+        constexpr UintTy sub_half(UintTy x, UintTy y, bool &bf)
+        {
+            y = x - y;
+            bf = (y > x);
+            return y;
+        }
+
+        // x + y + cf = sum with carry
+        template <typename UintTy>
+        constexpr UintTy add_carry(UintTy x, UintTy y, bool &cf)
+        {
+            UintTy sum = x + cf;
+            cf = (sum < x);
+            sum += y;             // carry
+            cf = cf || (sum < y); // carry
+            return sum;
+        }
+
+        // x - y - bf = diff with borrow
+        template <typename UintTy>
+        constexpr UintTy sub_borrow(UintTy x, UintTy y, bool &bf)
+        {
+            UintTy diff = x - bf;
+            bf = (diff > x);
+            y = diff - y;          // borrow
+            bf = bf || (y > diff); // borrow
+            return y;
+        }
         // Compute Integer multiplication, 64bit x 64bit to 128bit, basic algorithm
         // first is low 64bit, second is high 64bit
         constexpr void mul64x64to128_base(uint64_t a, uint64_t b, uint64_t &low, uint64_t &high)
@@ -570,7 +569,7 @@ namespace hint
 
             constexpr Uint128 operator<<(int shift) const
             {
-                if (shift == 0)
+                if (0 == shift)
                 {
                     return *this;
                 }
@@ -584,7 +583,7 @@ namespace hint
             }
             constexpr Uint128 operator>>(int shift) const
             {
-                if (shift == 0)
+                if (0 == shift)
                 {
                     return *this;
                 }
@@ -618,7 +617,7 @@ namespace hint
             }
             std::string toStringBase10() const
             {
-                if (high == 0)
+                if (0 == high)
                 {
                     return std::to_string(low);
                 }
@@ -695,7 +694,7 @@ namespace hint
             }
             constexpr Uint192 operator<<(int shift) const
             {
-                if (shift == 0)
+                if (0 == shift)
                 {
                     return *this;
                 }
@@ -777,7 +776,7 @@ namespace hint
             }
             std::string toStringBase10() const
             {
-                if (high == 0)
+                if (0 == high)
                 {
                     return Uint128(mid, low).toStringBase10();
                 }
@@ -808,11 +807,15 @@ namespace hint
         {
             return n.high64();
         }
-// #undef UINT128T
+
 #ifdef UINT128T
         using Uint128Default = __uint128_t;
+        using Int128Default = __int128_t;
+#pragma message("using __uint128_t and __int128_t as default")
 #else
         using Uint128Default = Uint128;
+        using Int128Default = Uint128;
+#pragma message("using Uint128 as default")
 #endif // UINT128T
 
         template <int BITS>
@@ -863,7 +866,7 @@ namespace hint
         template <>
         struct Uint<128>
         {
-            using SignType = Uint128Default;
+            using SignType = Int128Default;
             using Type = Uint128Default;
         };
 

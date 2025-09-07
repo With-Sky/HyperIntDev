@@ -12,7 +12,7 @@ namespace hint
             template <typename T>
             void ary_print(const T a[], size_t len, bool is_rev = false)
             {
-                if (len == 0)
+                if (0 == len)
                 {
                     std::cout << "0:[]\n";
                     return;
@@ -41,7 +41,7 @@ namespace hint
             template <typename T>
             void store_arr(const T arr[], size_t len, const std::string &path)
             {
-                if (len == 0)
+                if (0 == len)
                 {
                     return;
                 }
@@ -65,11 +65,11 @@ namespace hint
                 }
             }
 
-            // 去除前导零，返回实际长度，如果数组为空，则返回0
+            // remove leading zeros, return the true length
             template <typename T>
             constexpr size_t count_ture_length(const T array[], size_t length)
             {
-                if (array == nullptr)
+                if (nullptr == array)
                 {
                     return 0;
                 }
@@ -87,7 +87,7 @@ namespace hint
             }
 
             // Absolute compare, return 1 if a > b, -1 if a < b, 0 if a == b
-            // Return the diffence length if a != b
+            // Return the diffent length if a != b
             template <typename T>
             [[nodiscard]] constexpr auto abs_compare_with_length(const T in1[], size_t len1, const T in2[], size_t len2)
             {
@@ -124,7 +124,7 @@ namespace hint
                 return abs_compare_with_length(in1, len1, in2, len2).cmp;
             }
 
-            // 二进制移位,shift小于字的位数,输入输出可以为相同指针
+            // Binary left shift in word
             template <typename WordTy>
             constexpr WordTy lshift_in_word_half(const WordTy in[], size_t len, WordTy out[], int shift)
             {
@@ -220,7 +220,7 @@ namespace hint
 
             size_t get_mul_len(size_t l_len, size_t r_len)
             {
-                if (l_len == 0 || r_len == 0)
+                if (0 == l_len || 0 == r_len)
                 {
                     return 0;
                 }
@@ -229,6 +229,7 @@ namespace hint
 
             size_t get_div_len(size_t l_len, size_t r_len)
             {
+                assert(r_len > 0);
                 if (l_len < r_len)
                 {
                     return 0;
@@ -237,19 +238,16 @@ namespace hint
             }
 
             template <typename NumTy, typename ProdTy>
-            class DivSupporter
+            class DivExecutor
             {
             private:
                 NumTy divisor = 0;
                 NumTy inv = 0;
                 int shift = 0, shift1 = 0, shift2 = 0;
-                enum : int
-                {
-                    NUM_BITS = sizeof(NumTy) * CHAR_BIT
-                };
+                static constexpr int NUM_BITS = sizeof(NumTy) * CHAR_BIT;
 
             public:
-                constexpr DivSupporter(NumTy divisor_in) : divisor(divisor_in)
+                constexpr DivExecutor(NumTy divisor_in) : divisor(divisor_in)
                 {
                     inv = getInv(divisor, shift);
                     divisor <<= shift;
@@ -317,57 +315,58 @@ namespace hint
                     return NumTy((x + MAX) / divisor);
                 }
             };
+            template <typename NumTy, typename ProdTy>
+            constexpr int DivExecutor<NumTy, ProdTy>::NUM_BITS;
 
             template <typename T>
             class BaseExecutor
             {
-
             public:
                 using NumTy = T;
-                static constexpr int NUM_BIT = sizeof(NumTy) * CHAR_BIT;
-                using ProdTy = typename UintType<NUM_BIT>::NextType::Type;
-                using SignTy = typename UintType<NUM_BIT>::SignType;
-                constexpr BaseExecutor(NumTy base_in) : base(base_in), div_supporter(base_in) {assert}
+                static constexpr int NUM_BITS = sizeof(NumTy) * CHAR_BIT;
+                using ProdTy = typename UintType<NUM_BITS>::NextType::Type;
+                using SignTy = typename UintType<NUM_BITS>::SignType;
+                constexpr BaseExecutor(NumTy base_in) : base(base_in), div_supporter(base_in)
+                {
+                    assert(2 <= base && base <= hint::all_one<NumTy>(NUM_BITS));
+                }
 
                 constexpr NumTy addCarry(NumTy a, NumTy b, bool &cf) const
                 {
-                    a = a + b + cf;
-                    if (a >= base)
-                    {
-                        a -= base;
-                        cf = true;
-                    }
-                    return a;
+                    return addHalf(a, b + cf, cf);
                 }
                 constexpr NumTy addHalf(NumTy a, NumTy b, bool &cf) const
                 {
-                    a = a + b;
-                    if (a >= base)
+                    auto diff = base - b;
+                    if (a > diff)
                     {
                         a -= base;
                         cf = true;
                     }
+                    else
+                    {
+                        cf = false;
+                    }
+                    a += b;
                     return a;
                 }
 
-                constexpr NumTy subBorrow(SignTy a, SignTy b, bool &bf) const
+                constexpr NumTy subBorrow(NumTy a, NumTy b, bool &bf) const
                 {
-                    a = a - b - bf;
-                    bf = (a < 0);
-                    if (bf)
-                    {
-                        a += base;
-                    }
-                    return a;
+                    return subHalf(a, b + bf, bf);
                 }
-                constexpr NumTy subHalf(SignTy a, SignTy b, bool &bf) const
+                constexpr NumTy subHalf(NumTy a, NumTy b, bool &bf) const
                 {
-                    a = a - b;
-                    bf = (a < 0);
-                    if (bf)
+                    if (a < b)
                     {
                         a += base;
+                        bf = true;
                     }
+                    else
+                    {
+                        bf = false;
+                    }
+                    a -= b;
                     return a;
                 }
 
@@ -382,12 +381,12 @@ namespace hint
                 }
 
             private:
-                using DivSupporterTy = DivSupporter<NumTy, ProdTy>;
+                using DivExecutorTy = DivExecutor<NumTy, ProdTy>;
                 NumTy base;
-                DivSupporterTy div_supporter;
+                DivExecutorTy div_supporter;
             };
             template <typename NumTy>
-            constexpr int BaseExecutor<NumTy>::NUM_BIT;
+            constexpr int BaseExecutor<NumTy>::NUM_BITS;
 
             class BaseExecutorBinary
             {
@@ -395,39 +394,32 @@ namespace hint
                 template <typename UintTy>
                 static constexpr UintTy addCarry(UintTy a, UintTy b, bool &cf)
                 {
-                    a = a + b;
-                    cf = (a < b);
-                    return a;
+                    return add_carry(a, b, cf);
                 }
                 template <typename UintTy>
                 static constexpr UintTy addHalf(UintTy a, UintTy b, bool &cf)
                 {
-                    a = a + b;
-                    cf = (a < b);
-                    return a;
+                    return add_half(a, b, cf);
                 }
                 template <typename UintTy>
-                static constexpr UintTy subBorrow(UintTy a, UintTy b, bool &cf)
+                static constexpr UintTy subBorrow(UintTy a, UintTy b, bool &bf)
                 {
-                    a = a + b;
-                    cf = (a < b);
-                    return a;
+                    return sub_borrow(a, b, bf);
                 }
                 template <typename UintTy>
-                static constexpr UintTy subHalf(UintTy a, UintTy b, bool &cf)
+                static constexpr UintTy subHalf(UintTy a, UintTy b, bool &bf)
                 {
-                    a = a + b;
-                    cf = (a < b);
-                    return a;
+                    return sub_half(a, b, bf);
                 }
 
                 template <typename UintTy>
                 static void mulInBase(UintTy a, UintTy b, UintTy &hi, UintTy &lo)
                 {
-                    constexpr int NUM_BIT = sizeof(UintTy) * CHAR_BIT;
-                    using ProdTy = typename UintType<NUM_BIT>::NextType::Type;
+                    constexpr int NUM_BITS = sizeof(UintTy) * CHAR_BIT;
+                    static_assert(NUM_BITS <= 32, "Only for 32bit or lower");
+                    using ProdTy = typename UintType<NUM_BITS>::NextType::Type;
                     ProdTy prod = ProdTy(a) * b;
-                    hi = UintTy(prod >> NUM_BIT);
+                    hi = UintTy(prod >> NUM_BITS);
                     lo = UintTy(prod);
                 }
 
@@ -438,10 +430,9 @@ namespace hint
             };
         }
 
-        namespace addition_binary
+        namespace addition
         {
-            using namespace support;
-
+            // Addition, return carry
             template <typename NumTy, typename Executor>
             constexpr bool abs_add_long(const NumTy a[], const NumTy b[], size_t len, NumTy sum[], const Executor &exec)
             {
@@ -460,6 +451,31 @@ namespace hint
                 }
                 return carry;
             }
+            // Subtraction, return borrow
+            template <typename NumTy, typename Executor>
+            constexpr bool abs_sub_long(const NumTy a[], const NumTy b[], size_t len, NumTy diff[], const Executor &exec)
+            {
+                bool borrow = false;
+                size_t i = 0;
+                for (const size_t rem_len = len - len % 4; i < rem_len; i += 4)
+                {
+                    diff[i] = exec.subBorrow(a[i], b[i], borrow);
+                    diff[i + 1] = exec.subBorrow(a[i + 1], b[i + 1], borrow);
+                    diff[i + 2] = exec.subBorrow(a[i + 2], b[i + 2], borrow);
+                    diff[i + 3] = exec.subBorrow(a[i + 3], b[i + 3], borrow);
+                }
+                for (; i < len; i++)
+                {
+                    diff[i] = exec.subBorrow(a[i], b[i], borrow);
+                }
+                return borrow;
+            }
+        }
+
+        namespace addition_binary
+        {
+            using namespace support;
+            using namespace addition;
 
             template <typename NumTy, typename Executor>
             constexpr bool abs_add_long_num(const NumTy a[], size_t len, NumTy num, NumTy sum[], const Executor &exec)
@@ -488,17 +504,6 @@ namespace hint
                     carry = abs_add_long_num(a + len_b, len_a - len_b, NumTy(carry), sum + len_b, exec);
                 }
                 return carry;
-            }
-
-            template <typename NumTy, typename Executor>
-            constexpr bool abs_sub_long(const NumTy a[], const NumTy b[], size_t len, NumTy diff[], const Executor &exec)
-            {
-                bool borrow = false;
-                for (size_t i = 0; i < len; i++)
-                {
-                    diff[i] = exec.subBorrow(a[i], b[i], borrow);
-                }
-                return borrow;
             }
 
             template <typename NumTy, typename Executor>
@@ -817,8 +822,9 @@ namespace hint
 
             // in * num_mul + in_out -> in_out
             template <typename NumTy, typename Executor>
-            inline void abs_add_long_mul_long_num(const NumTy in[], size_t len, NumTy in_out[], NumTy num_mul, const Executor &exec)
+            inline void abs_add_long_mul_long_num(const NumTy in[], size_t len, NumTy in_out[], NumTy num_mul, const Executor &exec_in)
             {
+                const Executor exec = exec_in;
                 auto mulAdd = [num_mul, exec](const NumTy in1, NumTy &out, NumTy &carry)
                 {
                     bool cf;
@@ -1041,7 +1047,7 @@ namespace hint
             inline void abs_sqr64_ntt(const uint64_t in[], size_t len, uint64_t out[])
             {
                 using namespace hint::transform::ntt;
-                if (0 == len || in == nullptr)
+                if (0 == len || nullptr == in)
                 {
                     return;
                 }
@@ -1074,7 +1080,7 @@ namespace hint
             // NTT multiplication
             inline void abs_mul64_ntt(const uint64_t in1[], size_t len1, const uint64_t in2[], size_t len2, uint64_t out[])
             {
-                if (0 == len1 || 0 == len2 || in1 == nullptr || in2 == nullptr)
+                if (0 == len1 || 0 == len2 || nullptr == in1 || nullptr == in2)
                 {
                     return;
                 }
@@ -1180,11 +1186,12 @@ namespace hint
             }
             namespace ssa
             {
-
+                using namespace hint::extend_int;
                 // MOD = 2^(WORD_BIT*block_word)+1
                 template <typename WordTy = uint64_t>
                 class FermatFFT
                 {
+
                 public:
                     using Word = WordTy;
                     static constexpr int WORD_BIT = sizeof(Word) * CHAR_BIT;
@@ -1284,7 +1291,7 @@ namespace hint
                         assert(k < blockBit() * 2);
                         bool sign = k >= blockBit();
                         k = sign ? k - blockBit() : k;
-                        if (k == 0)
+                        if (0 == k)
                         {
                             if (sign)
                             {
@@ -1342,20 +1349,20 @@ namespace hint
                         Word x0, y0, n = 0;
                         {
                             x0 = x[0], y0 = y[0];
-                            x[0] = hint::add_half(x0, y0, carry);
-                            y[0] = hint::sub_half(x0, y0, borrow);
+                            x[0] = add_half(x0, y0, carry);
+                            y[0] = sub_half(x0, y0, borrow);
                         }
                         for (size_t i = 1; i < block_word; i++)
                         {
                             x0 = x[i], y0 = y[i];
-                            y[i] = hint::sub_borrow(x0, y0, borrow);
-                            x[i] = hint::add_carry(x0, y0, carry);
+                            y[i] = sub_borrow(x0, y0, borrow);
+                            x[i] = add_carry(x0, y0, carry);
                             n = std::max(n, x[i]);
                         }
                         {
                             x0 = x[block_word], y0 = y[block_word];
-                            x[block_word] = hint::add_carry(x0, y0, carry);
-                            y[block_word] = hint::sub_borrow(x0, y0, borrow);
+                            x[block_word] = add_carry(x0, y0, carry);
+                            y[block_word] = sub_borrow(x0, y0, borrow);
                         }
                         if (x[block_word] > 1)
                         {
@@ -1381,22 +1388,22 @@ namespace hint
                     void addMod(Word n[]) const
                     {
                         bool carry = false;
-                        n[0] = hint::add_half<Word>(n[0], 1, carry);
+                        n[0] = add_half<Word>(n[0], 1, carry);
                         for (size_t i = 1; i < block_word; i++)
                         {
-                            n[i] = hint::add_half<Word>(n[i], carry, carry);
+                            n[i] = add_half<Word>(n[i], carry, carry);
                         }
                         n[block_word] = n[block_word] + 1 + carry;
                     }
                     bool subMod(Word n[]) const
                     {
                         bool borrow = false;
-                        n[0] = hint::sub_half<Word>(n[0], 1, borrow);
+                        n[0] = sub_half<Word>(n[0], 1, borrow);
                         for (size_t i = 1; i < block_word; i++)
                         {
-                            n[i] = hint::sub_half<Word>(n[i], Word(borrow), borrow);
+                            n[i] = sub_half<Word>(n[i], Word(borrow), borrow);
                         }
-                        n[block_word] = hint::sub_borrow<Word>(n[block_word], 1, borrow);
+                        n[block_word] = sub_borrow<Word>(n[block_word], 1, borrow);
                         return borrow;
                     }
 
@@ -1407,14 +1414,14 @@ namespace hint
                             std::fill_n(out, getNumLen(), Word{});
                         }
                         bool borrow = false;
-                        out[0] = hint::sub_half<Word>(1, in[0], borrow);
+                        out[0] = sub_half<Word>(1, in[0], borrow);
                         for (size_t i = 1; i < block_word; i++)
                         {
                             Word n0 = in[i];
                             out[i] = Word(0) - borrow - n0;
                             borrow = borrow || n0 > 0;
                         }
-                        out[block_word] = hint::sub_borrow<Word>(1, in[block_word], borrow);
+                        out[block_word] = sub_borrow<Word>(1, in[block_word], borrow);
                         assert(!borrow);
                     }
 
@@ -1777,7 +1784,7 @@ namespace hint
             inline uint64_t abs_div_rem_num64(const uint64_t in[], size_t len, uint64_t out[], uint64_t divisor)
             {
                 uint64_t hi64 = 0;
-                const DivSupporter<uint64_t, Uint128> divisor_supporter(divisor);
+                const DivExecutor<uint64_t, Uint128> divisor_supporter(divisor);
                 while (len > 0)
                 {
                     len--;
@@ -1806,7 +1813,7 @@ namespace hint
                     factor *= 2;
                     first *= 2;
                 }
-                const DivSupporter<uint64_t, Uint128> base_supporter(base);
+                const DivExecutor<uint64_t, Uint128> base_supporter(base);
                 uint64_t carry = 0;
                 for (size_t i = 0; i < len; i++)
                 {
@@ -1882,7 +1889,7 @@ namespace hint
                 }
                 const uint64_t divisor_1 = divisor[divisor_len - 1];
                 const uint64_t divisor_0 = divisor[divisor_len - 2];
-                const DivSupporter<uint64_t, Uint128> div(divisor_1);
+                const DivExecutor<uint64_t, Uint128> div(divisor_1);
                 size_t i = dividend_len - divisor_len;
                 while (i > 0)
                 {
