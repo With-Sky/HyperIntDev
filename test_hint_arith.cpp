@@ -429,16 +429,22 @@ void test_add()
 {
     std::cout << "test_add\n";
     using namespace hint;
-    size_t len = 1e8;
+    size_t len = 100;
     constexpr uint64_t BASE = 1e18;
     std::vector<uint64_t> a(len, BASE - 1);
     std::vector<uint64_t> b(len, BASE - 1);
     std::vector<uint64_t> c(len + 1);
     constexpr hint::arithm::support::BaseExecutor<uint64_t> executor(BASE);
     auto t1 = std::chrono::steady_clock::now();
-    hint::arithm::addition_binary::abs_add_long_long(a.data(), a.size(), b.data(), b.size(), c.data(), executor);
+    bool cf = hint::arithm::addition_binary::abs_add_long_long(a.data(), a.size(), b.data(), b.size(), c.data(), executor);
     auto t2 = std::chrono::steady_clock::now();
     std::cout << std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count() << "us\n";
+    std::cout << "cf:" << cf << "\n";
+    for (auto it = c.rbegin(); it != c.rend(); it++)
+    {
+        std::cout << *it << " ";
+    }
+    std::cout << "\n";
 }
 
 int main()

@@ -327,25 +327,25 @@ namespace hint
                 static constexpr int NUM_BIT = sizeof(NumTy) * CHAR_BIT;
                 using ProdTy = typename UintType<NUM_BIT>::NextType::Type;
                 using SignTy = typename UintType<NUM_BIT>::SignType;
-                constexpr BaseExecutor(NumTy base_in) : base(base_in), div_supporter(base_in) {}
+                constexpr BaseExecutor(NumTy base_in) : base(base_in), div_supporter(base_in) {assert}
 
                 constexpr NumTy addCarry(NumTy a, NumTy b, bool &cf) const
                 {
                     a = a + b + cf;
-                    cf = (a >= base);
-                    if (cf)
+                    if (a >= base)
                     {
                         a -= base;
+                        cf = true;
                     }
                     return a;
                 }
                 constexpr NumTy addHalf(NumTy a, NumTy b, bool &cf) const
                 {
                     a = a + b;
-                    cf = (a >= base);
-                    if (cf)
+                    if (a >= base)
                     {
                         a -= base;
+                        cf = true;
                     }
                     return a;
                 }
@@ -393,7 +393,28 @@ namespace hint
             {
             public:
                 template <typename UintTy>
+                static constexpr UintTy addCarry(UintTy a, UintTy b, bool &cf)
+                {
+                    a = a + b;
+                    cf = (a < b);
+                    return a;
+                }
+                template <typename UintTy>
                 static constexpr UintTy addHalf(UintTy a, UintTy b, bool &cf)
+                {
+                    a = a + b;
+                    cf = (a < b);
+                    return a;
+                }
+                template <typename UintTy>
+                static constexpr UintTy subBorrow(UintTy a, UintTy b, bool &cf)
+                {
+                    a = a + b;
+                    cf = (a < b);
+                    return a;
+                }
+                template <typename UintTy>
+                static constexpr UintTy subHalf(UintTy a, UintTy b, bool &cf)
                 {
                     a = a + b;
                     cf = (a < b);
