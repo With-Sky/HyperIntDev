@@ -211,23 +211,21 @@ namespace hint
     }
 
     template <typename IntTy>
-    constexpr void xchg(IntTy &a, IntTy &b, IntTy q)
-    {
-        IntTy temp = a - b * q;
-        a = b, b = temp;
-    }
-
-    template <typename IntTy>
     inline IntTy exgcd_iter(IntTy a, IntTy b, IntTy &x, IntTy &y)
     {
+        auto exec = [](IntTy &m, IntTy &n, IntTy q)
+        {
+            IntTy temp = m - n * q;
+            m = n, n = temp;
+        };
         x = 1, y = 0;
         IntTy x1 = 0, y1 = 1;
         while (b > 0)
         {
             IntTy q = a / b;
-            xchg(x, x1, q);
-            xchg(y, y1, q);
-            xchg(a, b, q);
+            exec(x, x1, q);
+            exec(y, y1, q);
+            exec(a, b, q);
         }
         return a;
     }
@@ -1662,6 +1660,20 @@ namespace hint
             }
             return length;
         }
+        template <typename T>
+        constexpr size_t count_trailing_zero(const T array[], size_t length)
+        {
+            if (nullptr == array)
+            {
+                return 0;
+            }
+            auto it = array, end = array + length;
+            while (it < end && *it == 0)
+            {
+                it++;
+            }
+            return it - array;
+        }
 
         template <typename T>
         constexpr void remove_leading_zeros(const T array[], size_t &length)
@@ -1886,6 +1898,11 @@ namespace hint
             [[nodiscard]] inline NumTy abs_mul_add_num(const NumTy in[], size_t len, NumTy out[], NumTy num_mul, NumTy num_add,
                                                        const Executor &exec)
             {
+                if (0 == num_mul)
+                {
+                    std::fill(out, out + len, num_add);
+                    return len > 0 ? 0 : num_add;
+                }
                 size_t i = 0;
                 for (const size_t rem_len = len - len % 4; i < rem_len; i += 4)
                 {
@@ -1903,6 +1920,18 @@ namespace hint
             [[nodiscard]] inline NumTy abs_add_equal_mul_add_num(const NumTy in[], size_t len, NumTy out[], NumTy num_mul, NumTy num_add,
                                                                  const Executor &exec)
             {
+                if (0 == len)
+                {
+                    return num_add;
+                }
+                if (0 == num_mul)
+                {
+                    if (0 == num_add)
+                    {
+                        return 0;
+                    }
+                    return addition::abs_add_long_num(out, len, num_add, out, exec);
+                }
                 size_t rem = len % 8;
                 num_add = exec.addEqMulAddX8(in, len - rem, out, num_mul, num_add);
                 if (rem > 0)
@@ -1932,10 +1961,52 @@ namespace hint
                 return num_add;
             }
 
+            inline void abs_mul_basic_bin(const uint64_t in1[], size_t len1, const uint64_t in2[], size_t len2, uint64_t out[])
+            {
+                auto p1 = reinterpret_cast<const uint32_t *>(in1);
+                auto p2 = reinterpret_cast<const uint32_t *>(in2);
+                auto p_out = reinterpret_cast<uint32_t *>(out);
+                len1 *= 2;
+                len2 *= 2;
+                std::vector<uint32_t> buf(len1 + len2);
+                for (size_t i = 0; i < len1; i++)
+                {
+                    uint64_t num = p1[i], carry = 0;
+                    for (size_t j = 0; j < len2; j++)
+                    {
+                        uint64_t prod = num * p2[j] + carry + buf[i + j];
+                        buf[i + j] = prod;
+                        carry = prod >> 32;
+                    }
+                    buf[i + len2] = carry;
+                }
+                std::copy(buf.begin(), buf.begin() + len1 + len2, p_out);
+            }
+
+            inline void mul_check(const uint64_t in1[], size_t len1, const uint64_t in2[], size_t len2, const uint64_t out[])
+            {
+                if (len1 * len2 == 0)
+                {
+                    return;
+                }
+                std::vector<uint64_t> buf(len1 + len2);
+                abs_mul_basic_bin(in1, len1, in2, len2, buf.data());
+                if (!std::equal(buf.begin(), buf.begin() + len1 + len2, out))
+                {
+                    ary_print(in1, len1);
+                    ary_print(in2, len2);
+                    for (size_t i = 0; i < len1 + len2; i++)
+                    {
+                        std::cout << "buf[" << i << "] = " << buf[i] << " out[" << i << "] = " << out[i] << std::endl;
+                    }
+                    exit(EXIT_FAILURE);
+                }
+            }
+
             // Basic multiplication algorithm, use_buf = true if the in and out overlap
             template <typename NumTy, typename WorkMem = std::vector<NumTy>, typename Executor>
             inline void abs_mul_basic(const NumTy in1[], size_t len1, const NumTy in2[], size_t len2, NumTy out[],
-                                      const Executor &exec, bool use_buf = false)
+                                      const Executor &exec)
             {
                 if (len1 < len2)
                 {
@@ -1946,13 +2017,14 @@ namespace hint
                 {
                     return;
                 }
+                WorkMem in1_temp_dynamic;
+                NumTy in1_temp[STACK_MAX_LEN], in2_temp[STACK_MAX_LEN];
+                bool use_buf = mem_overlap(in1, in1 + len1, out, out + len1 + len2) ||
+                               mem_overlap(in2, in2 + len2, out, out + len1 + len2);
                 if (1 == len2)
                 {
-                    out[len1] = abs_mul_add_num(in1, len1, out, NumTy(0), in2[0], exec);
-                    return;
+                    use_buf = (in1 < out) && (out < in1 + len1);
                 }
-                NumTy in1_temp[STACK_MAX_LEN], in2_temp[STACK_MAX_LEN];
-                WorkMem in1_temp_dynamic;
                 if (use_buf)
                 {
                     assert(len2 <= STACK_MAX_LEN);
@@ -1968,6 +2040,11 @@ namespace hint
                         in1_temp_dynamic.assign(in1, in1 + len1);
                         in1 = in1_temp_dynamic.data();
                     }
+                }
+                if (1 == len2)
+                {
+                    out[len1] = abs_mul_add_num(in1, len1, out, in2[0], NumTy(0), exec);
+                    return;
                 }
                 if (len2 <= STACK_MAX_LEN)
                 {
@@ -1985,21 +2062,32 @@ namespace hint
             inline void abs_mul_karatusba(const NumTy in1[], size_t len1, const NumTy in2[], size_t len2, NumTy out[],
                                           const Executor &exec, NumTy *work_begin = nullptr, NumTy *work_end = nullptr)
             {
+                if (0 == len1 || 0 == len2 || nullptr == in1 || nullptr == in2)
+                {
+                    return;
+                }
+                const size_t out_len = get_mul_len(len1, len2);
+                {
+                    const size_t true_len1 = count_ture_length(in1, len1), true_len2 = count_ture_length(in2, len2);
+                    const size_t trail_len1 = count_trailing_zero(in1, true_len1), trail_len2 = count_trailing_zero(in2, true_len2);
+                    if (true_len1 + true_len2 < out_len || trail_len1 + trail_len2 > 0)
+                    {
+                        auto in1_temp = in1 + trail_len1, in2_temp = in2 + trail_len2;
+                        auto out_temp = out + trail_len1 + trail_len2;
+                        abs_mul_karatusba(in1_temp, true_len1 - trail_len1, in2_temp, true_len2 - trail_len2, out_temp, exec, work_begin, work_end);
+                        std::fill(out, out_temp, NumTy(0));
+                        std::fill(out + get_mul_len(true_len1, true_len2), out + out_len, NumTy(0));
+                        return;
+                    }
+                }
                 if (len1 < len2)
                 {
                     std::swap(in1, in2);
                     std::swap(len1, len2); // Let in1 be the loonger one
                 }
-                if (0 == len2 || nullptr == in1 || nullptr == in2)
-                {
-                    return;
-                }
-                const size_t out_len = get_mul_len(len1, len2);
                 if (len2 <= BASIC_THRESHOLD)
                 {
-                    const bool is_overlap = mem_overlap(in1, in1 + len1, out, out + out_len) ||
-                                            mem_overlap(in2, in2 + len2, out, out + out_len);
-                    abs_mul_basic(in1, len1, in2, len2, out, exec, is_overlap);
+                    abs_mul_basic(in1, len1, in2, len2, out, exec);
                     return;
                 }
                 // Split A * B -> (AH * BASE + AL) * (BH * BASE + BL)
@@ -2014,105 +2102,14 @@ namespace hint
                     len2_low = len2;
                     len2_high = 0;
                 }
-
-                // Get enough work_mem
-                WorkMem work_mem;
-                const size_t work_size = len1_low * 2 + 1;
-                if (nullptr == work_begin || nullptr == work_end || work_end < work_begin + work_size)
-                {
-                    work_mem.resize(work_size * 2);
-                    work_begin = work_mem.data();
-                    work_end = work_begin + work_mem.size();
-                }
-                // Set pointer of every part
-                auto in1_low = in1, in1_high = in1 + len1_low;
-                auto in2_low = in2, in2_high = in2 + len2_low;
-                auto k1 = work_begin, k2 = k1 + len1_low, k = k1;
-                auto m = out, n = out + base_len * 2;
-                work_begin += work_size;
-
-                // Compute K1,K2
-                remove_leading_zeros(in1, len1_low);
-                remove_leading_zeros(in2, len2_low);
-                int cmp1 = addition::abs_difference(in1_low, len1_low, in1_high, len1_high, k1, exec); // k1 = abs(AH - AL)
-                int cmp2 = addition::abs_difference(in2_low, len2_low, in2_high, len2_high, k2, exec); // k2 = abs(BH - BL)
-                size_t k1_len = count_ture_length(k1, get_sub_len(len1_low, len1_high));
-                size_t k2_len = count_ture_length(k2, get_sub_len(len2_low, len2_high));
-                abs_mul_karatusba(k1, k1_len, k2, k2_len, k, exec, work_begin, work_end); // K = K1 * K2
-                size_t k_len = count_ture_length(k, get_mul_len(k1_len, k2_len));
-
-                // Compute M,N
-                abs_mul_karatusba(in1_low, len1_low, in2_low, len2_low, m, exec, work_begin, work_end);     // M = AL * BL
-                abs_mul_karatusba(in1_high, len1_high, in2_high, len2_high, n, exec, work_begin, work_end); // N = AH * BH
-                size_t m_len = count_ture_length(m, get_mul_len(len1_low, len2_low));
-                size_t n_len = count_ture_length(n, get_mul_len(len1_high, len2_high));
-                // Combine the result
-                // out = M + N * BASE ^ 2
-                std::fill(out + m_len, out + base_len * 2, NumTy(0));
-                std::fill(out + base_len * 2 + n_len, out + out_len, NumTy(0));
-
-                auto out_base = out + base_len;
-                // out = N * BASE^2 + (M + N - K) * BASE + M
-                if ((cmp1 > 0) == (cmp2 > 0))
-                {
-                    k_len = base_len * 2;
-                    bool borrow = addition::abs_sub(m, k_len, k, k_len, k, exec);
-                    k[k1_len] = -NumTy(borrow);
-                    k_len++;
-                    bool carry = addition::abs_add(k, k_len, n, n_len, k, exec, false);
-                    assert(carry == borrow);
-                }
-                else
-                {
-                    addition::abs_add(m, m_len, k, k_len, k, exec);
-                    k_len++;
-                    bool carry = addition::abs_add(k, k_len, n, n_len, k, exec, false);
-                    assert(!carry);
-                }
-                remove_leading_zeros(k, k_len);
-                bool carry = addition::abs_add(k, k_len, out_base, out_len - base_len, out_base, exec, false);
-                assert(!carry);
-            }
-            // Karatsuba multiplication algorithm
-            template <typename NumTy, typename WorkMem = std::vector<NumTy>, typename Executor>
-            inline void abs_mul_karatusba1(const NumTy in1[], size_t len1, const NumTy in2[], size_t len2, NumTy out[],
-                                           const Executor &exec, NumTy *work_begin = nullptr, NumTy *work_end = nullptr)
-            {
-                if (len1 < len2)
-                {
-                    std::swap(in1, in2);
-                    std::swap(len1, len2); // Let in1 be the loonger one
-                }
-                if (0 == len2 || nullptr == in1 || nullptr == in2)
-                {
-                    return;
-                }
-                constexpr size_t BASIC_THRESHOLD = 32;
-                if (len2 <= BASIC_THRESHOLD)
-                {
-                    abs_mul_basic(in1, len1, in2, len2, out, exec, true);
-                    return;
-                }
-                // Split A * B -> (AH * BASE + AL) * (BH * BASE + BL)
-                // (AH * BASE + AL) * (BH * BASE + BL) = AH * BH * BASE^2 + (AH * BL + AL * BH) * BASE + AL * BL
-                // Let M = AL * BL, N = AH * BH, K1 = (AH - AL), K2 = (BH - BL), K = K1 * K2 = AH * BH - (AH * BL + AL * BH) + AL * BL
-                // A * B = N * BASE^2 + (M + N - K) * BASE + M
-                const size_t out_len = get_mul_len(len1, len2);
-                const size_t base_len = (len1 + 1) / 2;
-                size_t len1_low = base_len, len1_high = len1 - base_len;
-                size_t len2_low = base_len, len2_high = len2 - base_len;
-                if (len2 <= base_len)
-                {
-                    len2_low = len2;
-                    len2_high = 0;
-                }
+                auto in1_high = in1 + len1_low, in2_high = in2 + len2_low;
                 // Get length of every part
                 size_t m_len = get_mul_len(len1_low, len2_low);
                 size_t n_len = get_mul_len(len1_high, len2_high);
 
                 // Get enough work_mem
                 WorkMem work_mem;
-                const size_t work_size = m_len + n_len + get_mul_len(len1_low, len2_low);
+                const size_t block_len = base_len * 2, work_size = block_len * 2 + 2;
                 if (nullptr == work_begin || nullptr == work_end || work_end < work_begin + work_size)
                 {
                     work_mem.resize(work_size * 2);
@@ -2120,46 +2117,46 @@ namespace hint
                     work_end = work_begin + work_mem.size();
                 }
                 // Set pointer of every part
-                auto m = work_begin, n = m + m_len, k1 = n + n_len, k2 = k1 + len1_low, k = k1;
-                work_begin += work_size;
+                auto m = work_begin, n = out + base_len * 2, k1 = m + block_len + 2, k2 = k1 + base_len, k = k1;
+                int cmp1 = addition::abs_difference(in1, len1_low, in1_high, len1_high, k1, exec); // k1 = abs(AH - AL)
+                int cmp2 = addition::abs_difference(in2, len2_low, in2_high, len2_high, k2, exec); // k2 = abs(BH - BL)
+                size_t k1_len = get_sub_len(len1_low, len1_high);
+                size_t k2_len = get_sub_len(len2_low, len2_high);
                 // Compute M,N
-                abs_mul_karatusba(in1, len1_low, in2, len2_low, m, exec, work_begin, work_end);                         // M = AL * BL
-                abs_mul_karatusba(in1 + base_len, len1_high, in2 + base_len, len2_high, n, exec, work_begin, work_end); // N = AH * BH
-                // Compute K1,K2
-                remove_leading_zeros(in1, len1_low);
-                remove_leading_zeros(in2, len2_low);
-                int cmp1 = addition::abs_difference(in1, len1_low, in1 + base_len, len1_high, k1, exec); // k1 = abs(AH - AL)
-                int cmp2 = addition::abs_difference(in2, len2_low, in2 + base_len, len2_high, k2, exec); // k2 = abs(BH - BL)
-                size_t k1_len = count_ture_length(k1, get_sub_len(len1_low, len1_high));
-                size_t k2_len = count_ture_length(k2, get_sub_len(len2_low, len2_high));
-
+                work_begin += work_size;
+                abs_mul_karatusba(in1, len1_low, in2, len2_low, m, exec, work_begin, work_end);             // M = AL * BL
+                abs_mul_karatusba(in1_high, len1_high, in2_high, len2_high, n, exec, work_begin, work_end); // N = AH * BH
+                remove_leading_zeros(m, m_len);
+                remove_leading_zeros(n, n_len);
                 abs_mul_karatusba(k1, k1_len, k2, k2_len, k, exec, work_begin, work_end); // K = K1 * K2
                 size_t k_len = count_ture_length(k, get_mul_len(k1_len, k2_len));
+                // Compute K1,K2
                 // Combine the result
                 // out = M + N * BASE ^ 2
                 {
                     std::copy(m, m + m_len, out);
                     std::fill(out + m_len, out + base_len * 2, NumTy(0));
-                    std::copy(n, n + n_len, out + base_len * 2);
                     std::fill(out + base_len * 2 + n_len, out + out_len, NumTy(0));
                 }
-                auto out_base = out + base_len;
                 // out = N * BASE^2 + (M + N - K) * BASE + M
-                assert(n_len >= 1);
                 addition::abs_add(m, m_len, n, n_len, m, exec);
-                m_len++;
-                assert(k_len < m_len);
-                if ((cmp1 > 0) == (cmp2 > 0))
+                m_len = get_add_len(m_len, n_len);
+                if (0 == k_len)
+                {
+                    // NOP
+                }
+                else if ((cmp1 > 0) == (cmp2 > 0))
                 {
                     bool borrow = addition::abs_sub(m, m_len, k, k_len, m, exec);
                     assert(!borrow);
                 }
                 else
                 {
-                    bool carry = addition::abs_add(m, m_len, k, k_len, m, exec, false);
-                    assert(!carry);
+                    addition::abs_add(m, m_len, k, k_len, m, exec);
+                    m_len = get_add_len(m_len, k_len);
                 }
                 remove_leading_zeros(m, m_len);
+                auto out_base = out + base_len;
                 bool carry = addition::abs_add(m, m_len, out_base, out_len - base_len, out_base, exec, false);
                 assert(!carry);
             }
