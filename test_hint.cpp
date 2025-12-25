@@ -305,7 +305,7 @@ void test_ntt()
     std::cout << std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count() << "us\n";
 }
 
-#include "../../test/bind_cpu.hpp"
+#include "bind_cpu.hpp"
 
 void test_hint_str()
 {

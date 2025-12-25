@@ -663,7 +663,7 @@ namespace hint
             return uint64_t(a) * b % mod;
         }
         template <typename UintTy>
-        constexpr void add_carry_x4_basic(UintTy in1[4], UintTy in2[4], UintTy sum[4], bool &carry)
+        constexpr void add_carry_x4_basic(const UintTy in1[4], const UintTy in2[4], UintTy sum[4], bool &carry)
         {
             sum[0] = add_carry(in1[0], in2[0], carry);
             sum[1] = add_carry(in1[1], in2[1], carry);
@@ -2129,7 +2129,7 @@ namespace hint
 
                 static constexpr MontIntLazy one()
                 {
-                    constexpr MontIntLazy res(1);
+                    constexpr MontIntLazy res{1};
                     return res;
                 }
                 static constexpr MontIntLazy negOne()
@@ -3253,11 +3253,10 @@ namespace hint
                 constexpr auto mod23_mod1 = mulMod(MOD2 % MOD1, MOD3 % MOD1, MOD1);
                 constexpr auto mod13_mod2 = mulMod(MOD1 % MOD2, MOD3 % MOD2, MOD2);
                 constexpr auto mod12_mod3 = mulMod(MOD1 % MOD3, MOD2 % MOD3, MOD3);
-                constexpr ModInt1 inv1 = hint::mod_inv<int64_t>(mod23_mod1, MOD1);
-                constexpr ModInt2 inv2 = hint::mod_inv<int64_t>(mod13_mod2, MOD2);
-                constexpr ModInt3 inv3 = hint::mod_inv<int64_t>(mod12_mod3, MOD3);
+                constexpr ModInt1 inv1{hint::mod_inv<int64_t>(mod23_mod1, MOD1)};
+                constexpr ModInt2 inv2{hint::mod_inv<int64_t>(mod13_mod2, MOD2)};
+                constexpr ModInt3 inv3{hint::mod_inv<int64_t>(mod12_mod3, MOD3)};
 
-                constexpr ModInt1 mod23_1(NTT1::mod());
                 size_t len = len1 + len2 - 1;
                 size_t conv_len = NTT1::findFitLen(len);
                 std::vector<uint64_t> conv1(conv_len), temp(conv_len);
