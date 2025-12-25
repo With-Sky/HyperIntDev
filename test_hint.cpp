@@ -39,7 +39,7 @@ inline NumTy abs_mul_add_num_add_self_half(const NumTy in[], size_t len, NumTy o
 void test_abs_mul_add_num_half()
 {
     uint64_t base = 0, num = base - 1;
-    hint::utility::BaseExecutorBinary exec;
+    hint::utility::BaseExecutorBinary<uint64_t> exec;
     constexpr size_t len1 = 1e8, len2 = len1, loop = 1e6;
     std::vector<uint64_t> a(len1, base - 1);
     std::vector<uint64_t> b(len2, base - 1);
@@ -161,10 +161,10 @@ void test_mul_basic()
     using namespace hint;
     using namespace arithm::multiplication;
     using namespace arithm::addition;
-    uint64_t base = 0, num = base - 1;
+    uint64_t base = 1e19, num = base - 1;
     // BaseExecutor<uint64_t> exec(base);
-    utility::BaseExecutorBinary exec;
-    size_t len1 = 1e5, len2 = len1, loop = 1e5;
+    utility::BaseExecutorBinary<uint64_t> exec;
+    size_t len1 = (1e5), len2 = len1, loop = 1 << 20;
     // std::cin >> len1 >> len2 >> loop;
     std::vector<uint64_t> a(len1, num);
     std::vector<uint64_t> b(len2, num);
@@ -198,7 +198,8 @@ void test_mul_basic()
     auto t2 = std::chrono::steady_clock::now();
     // for (size_t i = 0; i < loop; i++)
     {
-        abs_mul_basic(a.data(), a.size(), b.data(), b.size(), c.data(), exec);
+        // abs_mul_basic(a.data(), a.size(), b.data(), b.size(), c.data(), exec);
+        abs_mul_ntt(a.data(), a.size(), b.data(), b.size(), c.data(), exec);
         // abs_mul_karatusba1(a.data(), a.size(), b.data(), b.size(), c.data(), exec);
         // abs_mul_basic_bin(a.data(), 40, a.data() + 40, 40, a.data());
         // abs_mul_karatusba(a.data(), a.size(), b.data(), b.size(), d.data(), exec);
@@ -245,17 +246,113 @@ void test_mul_basic()
     // delete[] a_p;
     // delete[] b_p;
 }
+template <typename T>
+void result_test(const std::vector<T> &res, uint64_t ele)
+{
+    size_t len = res.size();
+    for (size_t i = 0; i < len / 2; i++)
+    {
+        uint64_t x = (i + 1) * ele * ele;
+        uint64_t y = res[i];
+        if (x != y)
+        {
+            std::cout << "fail:" << i << "\t" << (i + 1) * ele * ele << "\t" << y << "\n";
+            return;
+        }
+    }
+    for (size_t i = len / 2; i < len; i++)
+    {
+        uint64_t x = (len - i - 1) * ele * ele;
+        uint64_t y = res[i];
+        if (x != y)
+        {
+            std::cout << "fail:" << i << "\t" << x << "\t" << y << "\n";
+            return;
+        }
+    }
+    std::cout << "success\n";
+}
+
+template <typename T>
+std::vector<T> poly_multiply(const std::vector<T> &in1, const std::vector<T> &in2)
+{
+    using namespace hint::transform::ntt;
+    using NTT = hint::transform::ntt::NTT64_1;
+    // using NTT = hint::transform::ntt::NTT<998244353,3>;
+    size_t len1 = in1.size(), len2 = in2.size(), out_len = len1 + len2;
+    std::vector<T> result(out_len);
+    size_t ntt_len = NTT::findFitLen(out_len);
+    std::vector<NTT::IntType> buffer1(ntt_len), buffer2(ntt_len);
+    std::copy(in1.begin(), in1.end(), buffer1.begin());
+    std::copy(in2.begin(), in2.end(), buffer2.begin());
+    NTT::convolution(buffer1.data(), buffer2.data(), ntt_len);
+    std::copy(buffer1.begin(), buffer1.begin() + out_len, result.begin());
+    return result;
+}
+void test_ntt()
+{
+    int n = 18;
+    std::cin >> n;
+    size_t len = size_t(1) << n; // 变换长度
+    // len = 117440512;
+    uint64_t ele = 2;
+    std::vector<uint32_t> in1(len / 2, ele);
+    std::vector<uint32_t> in2(len / 2, ele); // 计算两个长度为len/2，每个元素为ele的卷积
+    auto t1 = std::chrono::steady_clock::now();
+    std::vector<uint32_t> res = poly_multiply(in1, in2);
+    auto t2 = std::chrono::steady_clock::now();
+    result_test(res, ele); // 结果校验
+    std::cout << std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count() << "us\n";
+}
 
 #include "../../test/bind_cpu.hpp"
 
+void test_hint_str()
+{
+    hint::HyperIntHex a, b;
+    a.fromString(std::string(1000000, '9'));
+    b.fromString(std::string(1000000, '7'));
+    std::cout << a.limbSize() << std::endl;
+    auto t1 = std::chrono::steady_clock::now();
+    a *= b;
+    auto t2 = std::chrono::steady_clock::now();
+    // auto s = a.toString();
+    // std::cout << s << std::endl;
+    std::cout << std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count() << "us\n";
+}
 
-
+void test_branch(uint64_t p[], size_t len)
+{
+    using NTT = hint::transform::ntt::NTT64_1;
+    using Mint = NTT::ModInt;
+    auto t1 = std::chrono::steady_clock::now();
+    size_t stride = len / 4;
+    auto it0 = reinterpret_cast<Mint *>(p);
+    auto it1 = it0 + stride, it2 = it1 + stride, it3 = it2 + stride, end = it1;
+    Mint omega = stride;
+    for (; it3 < end; it0++, it1++, it2++, it3++)
+    {
+        auto t0 = it0[0].norm2(), t1 = it1[0].norm2();
+        auto t2 = it2[0].norm2(), t3 = it3[0].norm2();
+        // hint::transform::transform2(t0, t2);
+        // auto diff = t1.sub(t3);
+        // t1 = t1 + t3;
+        // t3 = diff * omega;
+        it0[0] = t0.add(t1), it1[0] = t0.sub(t1), it2[0] = t2.add(t3), it3[0] = t2.sub(t3);
+    }
+    auto t2 = std::chrono::steady_clock::now();
+}
 
 int main()
 {
     bind_cpu(0);
+    // test_hint_str();
+    test_mul_basic();
+    // test_ntt();
+
     // test_div();
     // test_mul_basic();
     // test_mul_basic10();
     // test_abs_mul_add_num_half();
+    std::cin.get();
 }

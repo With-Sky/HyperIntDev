@@ -95,7 +95,7 @@ namespace hint
     constexpr int hint_ctz(uint32_t x)
     {
         int r0 = 16, r1 = 8, r2 = 4, r3 = 2, r4 = 1;
-        x &= (-x);
+        x &= (0 - x);
         if (x & 0x0000FFFF)
         {
             r0 = 0;
@@ -662,6 +662,289 @@ namespace hint
         {
             return uint64_t(a) * b % mod;
         }
+        template <typename UintTy>
+        constexpr void add_carry_x4_basic(UintTy in1[4], UintTy in2[4], UintTy sum[4], bool &carry)
+        {
+            sum[0] = add_carry(in1[0], in2[0], carry);
+            sum[1] = add_carry(in1[1], in2[1], carry);
+            sum[2] = add_carry(in1[2], in2[2], carry);
+            sum[3] = add_carry(in1[3], in2[3], carry);
+        }
+
+        template <typename UintTy>
+        inline void add_carry_x4(const UintTy in1[4], const UintTy in2[4], UintTy sum[4], bool &carry)
+        {
+            static_assert(std::is_integral<UintTy>::value, "Input type must be integral type");
+            add_carry_x4_basic(in1, in2, sum, carry);
+        }
+
+        inline void add_carry_x4(const uint64_t in1[4], const uint64_t in2[4], uint64_t sum[4], bool &carry)
+        {
+#if defined(HINT_ADC64)
+#pragma message("Using _addcarry_u64 to compute 256bit + 256bit")
+            unsigned char cf = carry;
+            auto p = (HintULL *)sum;
+            cf = _addcarry_u64(cf, in1[0], in2[0], p);
+            cf = _addcarry_u64(cf, in1[1], in2[1], p + 1);
+            cf = _addcarry_u64(cf, in1[2], in2[2], p + 2);
+            carry = _addcarry_u64(cf, in1[3], in2[3], p + 3);
+#else
+#pragma message("Using basic function to compute 256bit + 256bit")
+            add_carry_x4_basic(in1, in2, sum, carry);
+#endif
+        }
+
+        template <typename UintTy>
+        constexpr void sub_borrow_x4_basic(const UintTy in1[4], const UintTy in2[4], UintTy diff[4], bool &borrow)
+        {
+            diff[0] = sub_borrow(in1[0], in2[0], borrow);
+            diff[1] = sub_borrow(in1[1], in2[1], borrow);
+            diff[2] = sub_borrow(in1[2], in2[2], borrow);
+            diff[3] = sub_borrow(in1[3], in2[3], borrow);
+        }
+        template <typename UintTy>
+        inline void sub_borrow_x4(const UintTy in1[4], const UintTy in2[4], UintTy diff[4], bool &borrow)
+        {
+            static_assert(std::is_integral<UintTy>::value, "Input type must be integral type");
+            sub_borrow_x4_basic(in1, in2, diff, borrow);
+        }
+
+        inline void sub_borrow_x4(const uint64_t in1[4], const uint64_t in2[4], uint64_t diff[4], bool &borrow)
+        {
+#if defined(HINT_ADC64)
+#pragma message("Using _subborrow_u64 to compute 256bit - 256bit")
+            unsigned char bf = borrow;
+            auto p = (HintULL *)diff;
+            bf = _subborrow_u64(bf, in1[0], in2[0], p);
+            bf = _subborrow_u64(bf, in1[1], in2[1], p + 1);
+            bf = _subborrow_u64(bf, in1[2], in2[2], p + 2);
+            borrow = _subborrow_u64(bf, in1[3], in2[3], p + 3);
+#else
+#pragma message("Using basic function to compute 256bit - 256bit")
+            sub_borrow_x4_basic(in1, in2, diff, borrow);
+#endif
+        }
+        template <typename UintTy>
+        constexpr void add_cf_x4_basic(const UintTy in[4], UintTy sum[4], bool &carry)
+        {
+            sum[0] = add_half(in[0], UintTy(carry), carry);
+            sum[1] = add_half(in[1], UintTy(carry), carry);
+            sum[2] = add_half(in[2], UintTy(carry), carry);
+            sum[3] = add_half(in[3], UintTy(carry), carry);
+        }
+        template <typename UintTy>
+        inline void add_cf_x4(const UintTy in[4], UintTy sum[4], bool &carry)
+        {
+            static_assert(std::is_integral<UintTy>::value, "Input type must be integral type");
+            add_cf_x4_basic(in, sum, carry);
+        }
+        inline void add_cf_x4(const uint64_t in[4], uint64_t sum[4], bool &carry)
+        {
+#if defined(HINT_ADC64)
+#pragma message("Using _addcarry_u64 to compute 256bit + carry")
+            unsigned char cf = carry;
+            auto p = (HintULL *)sum;
+            cf = _addcarry_u64(cf, in[0], 0, p);
+            cf = _addcarry_u64(cf, in[1], 0, p + 1);
+            cf = _addcarry_u64(cf, in[2], 0, p + 2);
+            carry = _addcarry_u64(cf, in[3], 0, p + 3);
+#else
+#pragma message("Using basic function to compute 256bit + carry")
+            add_cf_x4_basic(in, sum, carry);
+#endif
+        }
+        template <typename UintTy>
+        constexpr void sub_bf_x4_basic(const UintTy in[4], UintTy diff[4], bool &borrow)
+        {
+            diff[0] = sub_half(in[0], UintTy(borrow), borrow);
+            diff[1] = sub_half(in[1], UintTy(borrow), borrow);
+            diff[2] = sub_half(in[2], UintTy(borrow), borrow);
+            diff[3] = sub_half(in[3], UintTy(borrow), borrow);
+        }
+        template <typename UintTy>
+        inline void sub_bf_x4(const UintTy in[4], UintTy diff[4], bool &borrow)
+        {
+            static_assert(std::is_integral<UintTy>::value, "Input type must be integral type");
+            sub_bf_x4_basic(in, diff, borrow);
+        }
+        inline void sub_bf_x4(const uint64_t in[4], uint64_t diff[4], bool &borrow)
+        {
+#if defined(HINT_ADC64)
+#pragma message("Using _subborrow_u64 to compute 256bit - borrow")
+            unsigned char bf = borrow;
+            auto p = (HintULL *)diff;
+            bf = _subborrow_u64(bf, in[0], 0, p);
+            bf = _subborrow_u64(bf, in[1], 0, p + 1);
+            bf = _subborrow_u64(bf, in[2], 0, p + 2);
+            borrow = _subborrow_u64(bf, in[3], 0, p + 3);
+#else
+#pragma message("Using basic function to compute 256bit - borrow")
+            sub_bf_x4_basic(in, diff, borrow);
+#endif
+        }
+
+        template <typename UintTy>
+        constexpr void mul_add(UintTy a, UintTy b, UintTy c, UintTy &lo, UintTy &hi)
+        {
+            constexpr int NUM_BITS = sizeof(UintTy) * CHAR_BIT;
+            static_assert(NUM_BITS <= 32, "Only for 32bit or lower");
+            using ProdTy = typename Uint<NUM_BITS>::NextType::Type;
+            ProdTy prod = ProdTy(a) * b;
+            prod += c;
+            hi = UintTy(prod >> NUM_BITS);
+            lo = UintTy(prod);
+        }
+
+        // [hi,lo] = a * b + c
+        inline void mul_add(uint64_t a, uint64_t b, uint64_t c, uint64_t &lo, uint64_t &hi)
+        {
+            mul64x64to128(a, b, lo, hi);
+            lo += c;
+            hi += (lo < c);
+        }
+
+        template <typename UintTy>
+        inline UintTy mul_add_x4_basic(const UintTy in[4], UintTy num_mul, UintTy num_add, UintTy out[4])
+        {
+            mul_add(in[0], num_mul, num_add, out[0], num_add);
+            mul_add(in[1], num_mul, num_add, out[1], num_add);
+            mul_add(in[2], num_mul, num_add, out[2], num_add);
+            mul_add(in[3], num_mul, num_add, out[3], num_add);
+            return num_add;
+        }
+        template <typename UintTy>
+        inline UintTy mul_add_x4(const UintTy in[4], UintTy num_mul, UintTy num_add, UintTy out[4])
+        {
+            static_assert(std::is_integral<UintTy>::value, "Input type must be integral type");
+            return mul_add_x4_basic(in, num_mul, num_add, out);
+        }
+
+        inline uint64_t mul_add_x4_basic(const uint64_t in[4], uint64_t num_mul, uint64_t num_add, uint64_t out[4])
+        {
+#if defined(HINT_ADC64) && defined(HINT_MUL64X64)
+#pragma message("Using _subborrow_u64 to compute 256bit * num_mul + num_add")
+            unsigned char cf = 0;
+            auto p = (HintULL *)out;
+            HintULL lo0, hi0, lo1, hi1, lo2, hi2, lo3, hi3;
+            mul64x64to128(in[0], num_mul, lo0, hi0);
+            mul64x64to128(in[1], num_mul, lo1, hi1);
+            mul64x64to128(in[2], num_mul, lo2, hi2);
+            mul64x64to128(in[3], num_mul, lo3, hi3);
+            cf = _addcarry_u64(0, lo0, num_add, p);
+            cf = _addcarry_u64(cf, lo1, hi0, p + 1);
+            cf = _addcarry_u64(cf, lo2, hi1, p + 2);
+            cf = _addcarry_u64(cf, lo3, hi2, p + 3);
+            return hi3 + cf;
+#else
+#pragma message("Using basic function to compute 256bit * num_mul + num_add")
+            return mul_add_x4_basic(in, num_mul, num_add, out);
+#endif
+        }
+
+        template <typename UintTy>
+        inline void mul_add_plus_self(UintTy in, UintTy num_mul, UintTy &out, UintTy &carry)
+        {
+            bool cf;
+            UintTy hi, lo;
+            mul_binary(in, num_mul, lo, hi);
+            lo = add_half(lo, out, cf);
+            hi += cf;
+            out = add_half(lo, carry, cf);
+            carry = hi + cf;
+        }
+        template <typename UintTy>
+        inline UintTy add_eq_mul_add_x8_basic(const UintTy in[], size_t len, UintTy out[], UintTy num_mul, UintTy num_add)
+        {
+            len -= len % 8;
+            for (size_t i = 0; i < len; i += 8)
+            {
+                mul_add_plus_self(in[i], num_mul, out[i], num_add);
+                mul_add_plus_self(in[i + 1], num_mul, out[i + 1], num_add);
+                mul_add_plus_self(in[i + 2], num_mul, out[i + 2], num_add);
+                mul_add_plus_self(in[i + 3], num_mul, out[i + 3], num_add);
+                mul_add_plus_self(in[i + 4], num_mul, out[i + 4], num_add);
+                mul_add_plus_self(in[i + 5], num_mul, out[i + 5], num_add);
+                mul_add_plus_self(in[i + 6], num_mul, out[i + 6], num_add);
+                mul_add_plus_self(in[i + 7], num_mul, out[i + 7], num_add);
+            }
+            return num_add;
+        }
+        template <typename UintTy>
+        inline UintTy add_eq_mul_add_x8(const UintTy in[], size_t len, UintTy out[], UintTy num_mul, UintTy num_add)
+        {
+            static_assert(std::is_integral<UintTy>::value, "Input type must be integral type");
+            return add_eq_mul_add_x8_basic(in, len, out, num_mul, num_add);
+        }
+
+        inline uint64_t add_eq_mul_add_x8(const uint64_t in[], size_t len, uint64_t out[], uint64_t num_mul, uint64_t num_add)
+        {
+            len -= len % 8;
+#if defined(HINT_ASM) && defined(__ADX__) && defined(__BMI2__)
+#pragma message("Using ADX to compute 256bit += 256bit * num_mul + num_add")
+            auto end = in + len;
+            asm volatile(
+                "MOVQ %2, %%R12\n\t"
+                "MOVQ %4, %%R13\n\t"
+                "LOOP_ADX%=:\n\t"
+                "XORQ %%R11, %%R11\n\t"
+
+                "MULX (%%R12), %%RAX, %%R10\n\t"
+                "ADCX %0, %%RAX\n\t"
+                "ADOX (%%R13), %%RAX\n\t"
+                "MOVQ %%RAX, (%%R13)\n\t"
+
+                "MULX 8(%%R12), %%RAX, %0\n\t"
+                "ADCX %%R10, %%RAX\n\t"
+                "ADOX 8(%%R13), %%RAX\n\t"
+                "MOVQ %%RAX, 8(%%R13)\n\t"
+
+                "MULX 16(%%R12), %%RAX, %%R10\n\t"
+                "ADCX %0, %%RAX\n\t"
+                "ADOX 16(%%R13), %%RAX\n\t"
+                "MOVQ %%RAX, 16(%%R13)\n\t"
+
+                "MULX 24(%%R12), %%RAX, %0\n\t"
+                "ADCX %%R10, %%RAX\n\t"
+                "ADOX 24(%%R13), %%RAX\n\t"
+                "MOVQ %%RAX, 24(%%R13)\n\t"
+
+                "MULX 32(%%R12), %%RAX, %%R10\n\t"
+                "ADCX %0, %%RAX\n\t"
+                "ADOX 32(%%R13), %%RAX\n\t"
+                "MOVQ %%RAX, 32(%%R13)\n\t"
+
+                "MULX 40(%%R12), %%RAX, %0\n\t"
+                "ADCX %%R10, %%RAX\n\t"
+                "ADOX 40(%%R13), %%RAX\n\t"
+                "MOVQ %%RAX, 40(%%R13)\n\t"
+
+                "MULX 48(%%R12), %%RAX, %%R10\n\t"
+                "ADCX %0, %%RAX\n\t"
+                "ADOX 48(%%R13), %%RAX\n\t"
+                "MOVQ %%RAX, 48(%%R13)\n\t"
+
+                "MULX 56(%%R12), %%RAX, %0\n\t"
+                "ADCX %%R10, %%RAX\n\t"
+                "ADOX 56(%%R13), %%RAX\n\t"
+                "MOVQ %%RAX, 56(%%R13)\n\t"
+
+                "ADCX %%R11, %0\n\t"
+                "ADOX %%R11, %0\n\t"
+
+                "ADDQ $64, %%R12\n\t"
+                "ADDQ $64, %%R13\n\t"
+                "CMPQ %3,  %%R12\n\t"
+                "JB LOOP_ADX%=\n\t"
+                : "+r"(num_add)
+                : "d"(num_mul), "r"(in), "r"(end), "r"(out)
+                : "cc", "memory", "rax", "r10", "r11", "r12", "r13");
+            return num_add;
+#else
+#pragma message("Using basic function to compute 256bit += 256bit * num_mul + num_add")
+            return add_eq_mul_add_x8_basic(in, len, out, num_mul, num_add);
+#endif
+        }
+
         // uint64_t to std::string
         inline std::string ui64to_string_base10(uint64_t input, uint8_t digits)
         {
@@ -948,7 +1231,7 @@ namespace hint
                     mod.low = sub_half(low, mod.low, bf);
                     mod.mid = sub_borrow(mid, mod.mid, bf);
                     mod.high = high - mod.high - bf;
-                    // mask = 11111 if *this < mod
+                    // mask = 0b111...1 if *this < mod
                     // res = mod if *this >= mod
                     auto mask = uint64_t(0) - uint64_t(mod.high > high), nmask = ~mask;
                     mod.low = (mod.low & nmask) | (low & mask);
@@ -1176,7 +1459,13 @@ namespace hint
             // using SignTy = typename UintType<NUM_BITS>::SignType;
             constexpr BaseExecutor(NumTy base_in) : base(base_in), div_exe(base_in)
             {
-                assert(2 <= base && base <= hint::all_one<NumTy>(NUM_BITS));
+                assert(2 <= base);
+                assert(base <= hint::all_one<NumTy>(NUM_BITS));
+            }
+
+            constexpr NumTy halfBase() const
+            {
+                return (base + 1) / 2;
             }
 
             constexpr bool checkDivisor(NumTy divisor) const
@@ -1249,14 +1538,14 @@ namespace hint
                 dividend = extend_int::Uint192{lo, mi, hi};
                 return rem;
             }
-            constexpr void addCarryX4(const NumTy in1[4], const NumTy in2[4], NumTy sum[4], bool &carry) const
+            constexpr void add_carry_x4(const NumTy in1[4], const NumTy in2[4], NumTy sum[4], bool &carry) const
             {
                 sum[0] = addCarry(in1[0], in2[0], carry);
                 sum[1] = addCarry(in1[1], in2[1], carry);
                 sum[2] = addCarry(in1[2], in2[2], carry);
                 sum[3] = addCarry(in1[3], in2[3], carry);
             }
-            constexpr void subBorrowX4(const NumTy in1[4], const NumTy in2[4], NumTy sum[4], bool &borrow) const
+            constexpr void sub_borrow_x4(const NumTy in1[4], const NumTy in2[4], NumTy sum[4], bool &borrow) const
             {
                 sum[0] = subBorrow(in1[0], in2[0], borrow);
                 sum[1] = subBorrow(in1[1], in2[1], borrow);
@@ -1350,48 +1639,51 @@ namespace hint
         template <typename NumTy>
         constexpr int BaseExecutor<NumTy>::NUM_BITS;
 
+        template <typename UintTy>
         class BaseExecutorBinary
         {
         public:
-            constexpr BaseExecutorBinary() {}
+            static_assert(std::is_integral<UintTy>::value, "UintTy must be integral type");
+            static_assert(std::is_unsigned<UintTy>::value, "UintTy must be unsigned type");
+            static constexpr int NUM_BITS = std::numeric_limits<UintTy>::digits;
+            static constexpr UintTy MAX_NUM = all_one<UintTy>(NUM_BITS);
+            constexpr BaseExecutorBinary() = default;
 
-            template <typename UintTy>
             constexpr BaseExecutorBinary(UintTy) { /*NOP*/ }
 
-            template <typename UintTy>
-            static constexpr bool checkDivisor(UintTy divisor)
+            static constexpr UintTy halfBase()
             {
-                return true;
+                return UintTy(1) << (NUM_BITS - 1);
             }
 
-            template <typename UintTy>
+            template <typename T>
+            static constexpr bool checkDivisor(T divisor)
+            {
+                return divisor <= MAX_NUM;
+            }
+
             static constexpr UintTy addCarry(UintTy a, UintTy b, bool &cf)
             {
                 return add_carry(a, b, cf);
             }
-            template <typename UintTy>
             static constexpr UintTy addHalf(UintTy a, UintTy b, bool &cf)
             {
                 return add_half(a, b, cf);
             }
-            template <typename UintTy>
             static constexpr UintTy subBorrow(UintTy a, UintTy b, bool &bf)
             {
                 return sub_borrow(a, b, bf);
             }
-            template <typename UintTy>
             static constexpr UintTy subHalf(UintTy a, UintTy b, bool &bf)
             {
                 return sub_half(a, b, bf);
             }
-            template <typename UintTy>
             static constexpr UintTy addCf(UintTy a, bool &cf)
             {
                 a += cf;
                 cf = a < cf;
                 return a;
             }
-            template <typename UintTy>
             static constexpr UintTy subBf(UintTy a, bool &bf)
             {
                 UintTy diff = a - bf;
@@ -1405,304 +1697,51 @@ namespace hint
                 dividend = dividend.rShift64();
                 return rem;
             }
-            template <typename UintTy>
-            static constexpr void addCarryX4Basic(UintTy in1[4], UintTy in2[4], UintTy sum[4], bool &carry)
+            static void addCarryX4(const UintTy in1[4], const UintTy in2[4], UintTy sum[4], bool &carry) noexcept
             {
-                sum[0] = add_carry(in1[0], in2[0], carry);
-                sum[1] = add_carry(in1[1], in2[1], carry);
-                sum[2] = add_carry(in1[2], in2[2], carry);
-                sum[3] = add_carry(in1[3], in2[3], carry);
+                add_carry_x4(in1, in2, sum, carry);
+            }
+            static void subBorrowX4(const UintTy in1[4], const UintTy in2[4], UintTy diff[4], bool &borrow) noexcept
+            {
+                sub_borrow_x4(in1, in2, diff, borrow);
+            }
+            static void addCfX4(const UintTy in[4], UintTy sum[4], bool &carry) noexcept
+            {
+                add_cf_x4(in, sum, carry);
+            }
+            static void subBfX4(const UintTy in[4], UintTy diff[4], bool &borrow) noexcept
+            {
+                sub_bf_x4(in, diff, borrow);
             }
 
-            template <typename UintTy>
-            static constexpr void addCarryX4(const UintTy in1[4], const UintTy in2[4], UintTy sum[4], bool &carry)
+            static void mulInBase(UintTy a, UintTy b, UintTy &lo, UintTy &hi) noexcept
             {
-                addCarryX4Basic(in1, in2, sum, carry);
+                mul_binary(a, b, lo, hi);
             }
 
-            static inline void addCarryX4(const uint64_t in1[4], const uint64_t in2[4], uint64_t sum[4], bool &carry)
-            {
-#if defined(HINT_ADC64)
-#pragma message("Using _addcarry_u64 to compute 256bit + 256bit")
-                unsigned char cf = carry;
-                auto p = (HintULL *)sum;
-                cf = _addcarry_u64(cf, in1[0], in2[0], p);
-                cf = _addcarry_u64(cf, in1[1], in2[1], p + 1);
-                cf = _addcarry_u64(cf, in1[2], in2[2], p + 2);
-                carry = _addcarry_u64(cf, in1[3], in2[3], p + 3);
-#else
-#pragma message("Using basic function to compute 256bit + 256bit")
-                addCarryX4Basic(in1, in2, sum, carry);
-#endif
-            }
-
-            template <typename UintTy>
-            static constexpr void subBorrowX4Basic(const UintTy in1[4], const UintTy in2[4], UintTy diff[4], bool &borrow)
-            {
-                diff[0] = sub_borrow(in1[0], in2[0], borrow);
-                diff[1] = sub_borrow(in1[1], in2[1], borrow);
-                diff[2] = sub_borrow(in1[2], in2[2], borrow);
-                diff[3] = sub_borrow(in1[3], in2[3], borrow);
-            }
-            template <typename UintTy>
-            static constexpr void subBorrowX4(const UintTy in1[4], const UintTy in2[4], UintTy diff[4], bool &borrow)
-            {
-                subBorrowX4Basic(in1, in2, diff, borrow);
-            }
-
-            static inline void subBorrowX4(const uint64_t in1[4], const uint64_t in2[4], uint64_t diff[4], bool &borrow)
-            {
-#if defined(HINT_ADC64)
-#pragma message("Using _subborrow_u64 to compute 256bit - 256bit")
-                unsigned char bf = borrow;
-                auto p = (HintULL *)diff;
-                bf = _subborrow_u64(bf, in1[0], in2[0], p);
-                bf = _subborrow_u64(bf, in1[1], in2[1], p + 1);
-                bf = _subborrow_u64(bf, in1[2], in2[2], p + 2);
-                borrow = _subborrow_u64(bf, in1[3], in2[3], p + 3);
-#else
-#pragma message("Using basic function to compute 256bit - 256bit")
-                subBorrowX4Basic(in1, in2, diff, borrow);
-#endif
-            }
-            template <typename UintTy>
-            static constexpr void addCfX4Basic(const UintTy in[4], UintTy sum[4], bool &carry)
-            {
-                sum[0] = add_carry(in[0], carry);
-                sum[1] = add_carry(in[1], carry);
-                sum[2] = add_carry(in[2], carry);
-                sum[3] = add_carry(in[3], carry);
-            }
-            template <typename UintTy>
-            static constexpr void addCfX4(const UintTy in[4], UintTy sum[4], bool &carry)
-            {
-                addCfX4Basic(in, sum, carry);
-            }
-            static inline void addCfX4(const uint64_t in[4], uint64_t sum[4], bool &carry)
-            {
-#if defined(HINT_ADC64)
-#pragma message("Using _addcarry_u64 to compute 256bit + carry")
-                unsigned char cf = carry;
-                auto p = (HintULL *)sum;
-                cf = _addcarry_u64(cf, in[0], 0, p);
-                cf = _addcarry_u64(cf, in[1], 0, p + 1);
-                cf = _addcarry_u64(cf, in[2], 0, p + 2);
-                carry = _addcarry_u64(cf, in[3], 0, p + 3);
-#else
-#pragma message("Using basic function to compute 256bit + carry")
-                addCfX4Basic(in, sum, carry);
-#endif
-            }
-            template <typename UintTy>
-            static constexpr void subBfX4Basic(const UintTy in[4], UintTy diff[4], bool &borrow)
-            {
-                diff[0] = sub_borrow(in[0], borrow);
-                diff[1] = sub_borrow(in[1], borrow);
-                diff[2] = sub_borrow(in[2], borrow);
-                diff[3] = sub_borrow(in[3], borrow);
-            }
-            template <typename UintTy>
-            static constexpr void subBfX4(const UintTy in[4], UintTy diff[4], bool &borrow)
-            {
-                subBfX4Basic(in, diff, borrow);
-            }
-            static inline void subBfX4(const uint64_t in[4], uint64_t diff[4], bool &borrow)
-            {
-#if defined(HINT_ADC64)
-#pragma message("Using _subborrow_u64 to compute 256bit - borrow")
-                unsigned char bf = borrow;
-                auto p = (HintULL *)diff;
-                bf = _subborrow_u64(bf, in[0], 0, p);
-                bf = _subborrow_u64(bf, in[1], 0, p + 1);
-                bf = _subborrow_u64(bf, in[2], 0, p + 2);
-                borrow = _subborrow_u64(bf, in[3], 0, p + 3);
-#else
-#pragma message("Using basic function to compute 256bit - borrow")
-                subBfX4Basic(in, diff, borrow);
-#endif
-            }
-
-            template <typename UintTy>
-            static void mulInBase(UintTy a, UintTy b, UintTy &lo, UintTy &hi)
-            {
-                constexpr int NUM_BITS = sizeof(UintTy) * CHAR_BIT;
-                static_assert(NUM_BITS <= 32, "Only for 32bit or lower");
-                using ProdTy = typename Uint<NUM_BITS>::NextType::Type;
-                ProdTy prod = ProdTy(a) * b;
-                hi = UintTy(prod >> NUM_BITS);
-                lo = UintTy(prod);
-            }
-
-            static void mulInBase(uint64_t a, uint64_t b, uint64_t &lo, uint64_t &hi)
-            {
-                mul64x64to128(a, b, lo, hi);
-            }
-
-            template <typename UintTy>
-            static void dualBaseToBin(UintTy hi, UintTy lo, UintTy &lo_bin, UintTy &hi_bin)
+            static void dualBaseToBin(UintTy hi, UintTy lo, UintTy &lo_bin, UintTy &hi_bin) noexcept
             {
                 lo_bin = lo;
                 hi_bin = hi;
             }
 
-            template <typename UintTy>
-            static void mulAdd(UintTy a, UintTy b, UintTy c, UintTy &lo, UintTy &hi)
+            static void mulAdd(UintTy a, UintTy b, UintTy c, UintTy &lo, UintTy &hi) noexcept
             {
-                constexpr int NUM_BITS = sizeof(UintTy) * CHAR_BIT;
-                static_assert(NUM_BITS <= 32, "Only for 32bit or lower");
-                using ProdTy = typename Uint<NUM_BITS>::NextType::Type;
-                ProdTy prod = ProdTy(a) * b;
-                prod += c;
-                hi = UintTy(prod >> NUM_BITS);
-                lo = UintTy(prod);
+                mul_add(a, b, c, lo, hi);
             }
 
-            // [hi,lo] = a * b + c
-            static void mulAdd(uint64_t a, uint64_t b, uint64_t c, uint64_t &lo, uint64_t &hi)
+            static UintTy mulAddX4(const UintTy in[4], UintTy num_mul, UintTy num_add, UintTy out[4]) noexcept
             {
-                mul64x64to128(a, b, lo, hi);
-                lo += c;
-                hi += (lo < c);
+                return mul_add_x4(in, num_mul, num_add, out);
             }
 
-            template <typename UintTy>
-            static UintTy mulAddX4Basic(const UintTy in[4], UintTy num_mul, UintTy num_add, UintTy out[4])
+            static void mulAddPlusSelf(UintTy in, UintTy num_mul, UintTy &out, UintTy &carry) noexcept
             {
-                mulAdd(in[0], num_mul, num_add, out[0], num_add);
-                mulAdd(in[1], num_mul, num_add, out[1], num_add);
-                mulAdd(in[2], num_mul, num_add, out[2], num_add);
-                mulAdd(in[3], num_mul, num_add, out[3], num_add);
-                return num_add;
+                mul_add_plus_self(in, num_mul, out, carry);
             }
-            template <typename UintTy>
-            static UintTy mulAddX4(const UintTy in[4], UintTy num_mul, UintTy num_add, UintTy out[4])
+            static UintTy addEqMulAddX8(const UintTy in[], size_t len, UintTy out[], UintTy num_mul, UintTy num_add) noexcept
             {
-                return mulAddX4Basic(in, num_mul, num_add, out);
-            }
-
-            static uint64_t mulAddX4(const uint64_t in[4], uint64_t num_mul, uint64_t num_add, uint64_t out[4])
-            {
-#if defined(HINT_ADC64) && defined(HINT_MUL64X64)
-#pragma message("Using _subborrow_u64 to compute 256bit * num_mul + num_add")
-                unsigned char cf = 0;
-                auto p = (HintULL *)out;
-                HintULL lo0, hi0, lo1, hi1, lo2, hi2, lo3, hi3;
-                mul64x64to128(in[0], num_mul, lo0, hi0);
-                mul64x64to128(in[1], num_mul, lo1, hi1);
-                mul64x64to128(in[2], num_mul, lo2, hi2);
-                mul64x64to128(in[3], num_mul, lo3, hi3);
-                cf = _addcarry_u64(0, lo0, num_add, p);
-                cf = _addcarry_u64(cf, lo1, hi0, p + 1);
-                cf = _addcarry_u64(cf, lo2, hi1, p + 2);
-                cf = _addcarry_u64(cf, lo3, hi2, p + 3);
-                return hi3 + cf;
-#else
-#pragma message("Using basic function to compute 256bit * num_mul + num_add")
-                return mulAddX4Basic(in, num_mul, num_add, out);
-#endif
-            }
-
-            template <typename UintTy>
-            static void mulAddPlusSelf(UintTy in, UintTy num_mul, UintTy &out, UintTy &carry)
-            {
-                bool cf;
-                UintTy hi, lo;
-                mulInBase(in, num_mul, lo, hi);
-                lo = addHalf(lo, out, cf);
-                hi += cf;
-                out = addHalf(lo, carry, cf);
-                carry = hi + cf;
-            }
-            template <typename UintTy>
-            static UintTy addEqMulAddX8Basic(const UintTy in[], size_t len, UintTy out[], UintTy num_mul, UintTy num_add)
-            {
-                len -= len % 8;
-                for (size_t i = 0; i < len; i += 8)
-                {
-                    mulAddPlusSelf(in[i], num_mul, out[i], num_add);
-                    mulAddPlusSelf(in[i + 1], num_mul, out[i + 1], num_add);
-                    mulAddPlusSelf(in[i + 2], num_mul, out[i + 2], num_add);
-                    mulAddPlusSelf(in[i + 3], num_mul, out[i + 3], num_add);
-                    mulAddPlusSelf(in[i + 4], num_mul, out[i + 4], num_add);
-                    mulAddPlusSelf(in[i + 5], num_mul, out[i + 5], num_add);
-                    mulAddPlusSelf(in[i + 6], num_mul, out[i + 6], num_add);
-                    mulAddPlusSelf(in[i + 7], num_mul, out[i + 7], num_add);
-                }
-                return num_add;
-            }
-            template <typename UintTy>
-            static UintTy addEqMulAddX8(const UintTy in[], size_t len, UintTy out[], UintTy num_mul, UintTy num_add)
-            {
-                return addEqMulAddX8Basic(in, len, out, num_mul, num_add);
-            }
-
-            static uint64_t addEqMulAddX8(const uint64_t in[], size_t len, uint64_t out[], uint64_t num_mul, uint64_t num_add)
-            {
-                len -= len % 8;
-#if defined(HINT_ASM) && defined(__ADX__) && defined(__BMI2__)
-#pragma message("Using ADX to compute 256bit += 256bit * num_mul + num_add")
-                auto end = in + len;
-                asm volatile(
-                    "MOVQ %2, %%R12\n\t"
-                    "MOVQ %4, %%R13\n\t"
-                    "LOOP_ADX%=:\n\t"
-                    "XORQ %%R11, %%R11\n\t"
-
-                    "MULX (%%R12), %%RAX, %%R10\n\t"
-                    "ADCX %0, %%RAX\n\t"
-                    "ADOX (%%R13), %%RAX\n\t"
-                    "MOVQ %%RAX, (%%R13)\n\t"
-
-                    "MULX 8(%%R12), %%RAX, %0\n\t"
-                    "ADCX %%R10, %%RAX\n\t"
-                    "ADOX 8(%%R13), %%RAX\n\t"
-                    "MOVQ %%RAX, 8(%%R13)\n\t"
-
-                    "MULX 16(%%R12), %%RAX, %%R10\n\t"
-                    "ADCX %0, %%RAX\n\t"
-                    "ADOX 16(%%R13), %%RAX\n\t"
-                    "MOVQ %%RAX, 16(%%R13)\n\t"
-
-                    "MULX 24(%%R12), %%RAX, %0\n\t"
-                    "ADCX %%R10, %%RAX\n\t"
-                    "ADOX 24(%%R13), %%RAX\n\t"
-                    "MOVQ %%RAX, 24(%%R13)\n\t"
-
-                    "MULX 32(%%R12), %%RAX, %%R10\n\t"
-                    "ADCX %0, %%RAX\n\t"
-                    "ADOX 32(%%R13), %%RAX\n\t"
-                    "MOVQ %%RAX, 32(%%R13)\n\t"
-
-                    "MULX 40(%%R12), %%RAX, %0\n\t"
-                    "ADCX %%R10, %%RAX\n\t"
-                    "ADOX 40(%%R13), %%RAX\n\t"
-                    "MOVQ %%RAX, 40(%%R13)\n\t"
-
-                    "MULX 48(%%R12), %%RAX, %%R10\n\t"
-                    "ADCX %0, %%RAX\n\t"
-                    "ADOX 48(%%R13), %%RAX\n\t"
-                    "MOVQ %%RAX, 48(%%R13)\n\t"
-
-                    "MULX 56(%%R12), %%RAX, %0\n\t"
-                    "ADCX %%R10, %%RAX\n\t"
-                    "ADOX 56(%%R13), %%RAX\n\t"
-                    "MOVQ %%RAX, 56(%%R13)\n\t"
-
-                    "ADCX %%R11, %0\n\t"
-                    "ADOX %%R11, %0\n\t"
-
-                    "ADDQ $64, %%R12\n\t"
-                    "ADDQ $64, %%R13\n\t"
-                    "CMPQ %3,  %%R12\n\t"
-                    "JB LOOP_ADX%=\n\t"
-                    : "+r"(num_add)
-                    : "d"(num_mul), "r"(in), "r"(end), "r"(out)
-                    : "cc", "memory", "rax", "r10", "r11", "r12", "r13");
-                return num_add;
-#else
-#pragma message("Using basic function to compute 256bit += 256bit * num_mul + num_add")
-                return addEqMulAddX8Basic(in, len, out, num_mul, num_add);
-#endif
+                return add_eq_mul_add_x8(in, len, out, num_mul, num_add);
             }
         };
         template <uint64_t MOD1, uint64_t MOD2, uint64_t MOD3>
@@ -1711,7 +1750,7 @@ namespace hint
             using Uint128 = extend_int::Uint128;
             using Uint192 = extend_int::Uint192;
 
-            static Uint192 crt3(uint64_t n1, uint64_t n2, uint64_t n3)
+            static Uint192 crt3(uint64_t n1, uint64_t n2, uint64_t n3) noexcept
             {
                 constexpr auto prod = Uint192::mul64x64x64(MOD1, MOD2, MOD3);
                 constexpr auto mod12 = Uint128::mul64x64(MOD1, MOD2);
@@ -1902,6 +1941,7 @@ namespace hint
                 static constexpr IntType R2 = utility::mulMod(R, R, IntType(MOD)); // R^2 % MOD
                 static constexpr IntType MOD_INV = inv_mod2pow(MOD, R_BITS);       // MOD^-1 % R
                 static constexpr IntType MOD_INV_NEG = IntType(0) - MOD_INV;       // -MOD^-1 % R
+                static constexpr IntType MOD2 = MOD * 2;                           // MOD * 2
                 static_assert(IntType(MOD * MOD_INV) == 1, "MOD_INV not correct");
 
                 constexpr MontIntLazy() = default;
@@ -1911,37 +1951,37 @@ namespace hint
                 {
                     return data;
                 }
-
-                constexpr MontIntLazy operator+(MontIntLazy rhs) const
+                constexpr MontIntLazy &operator+=(MontIntLazy rhs)
                 {
-                    rhs.data = data + rhs.data;
-                    rhs.data = rhs.data >= mod<2>() ? rhs.data - mod<2>() : rhs.data;
-                    return rhs;
+                    data += rhs.data;
+                    data = norm2(data);
+                    return *this;
                 }
-                constexpr MontIntLazy operator-(MontIntLazy rhs) const
+                constexpr MontIntLazy &operator-=(MontIntLazy rhs)
                 {
-                    rhs.data = data - rhs.data;
-                    rhs.data = rhs.data > data ? rhs.data + mod<2>() : rhs.data;
-                    return rhs;
+                    const IntType mask = IntType(0) - (data < rhs.data);
+                    data = data - rhs.data + (MOD2 & mask);
+                    return *this;
                 }
-                MontIntLazy operator*(MontIntLazy rhs) const
-                {
-                    ProdTypeFast prod = ProdTypeFast(data) * rhs.data;
-                    rhs.data = redcLazy(prod);
-                    return rhs;
-                }
-                constexpr MontIntLazy &operator+=(const MontIntLazy &rhs)
-                {
-                    return *this = *this + rhs;
-                }
-                constexpr MontIntLazy &operator-=(const MontIntLazy &rhs)
-                {
-                    return *this = *this - rhs;
-                }
-                constexpr MontIntLazy &operator*=(const MontIntLazy &rhs)
+                constexpr MontIntLazy &operator*=(MontIntLazy rhs)
                 {
                     data = redc(ProdType(data) * rhs.data);
                     return *this;
+                }
+
+                friend constexpr MontIntLazy operator+(MontIntLazy lhs, MontIntLazy rhs)
+                {
+                    return lhs += rhs;
+                }
+                friend constexpr MontIntLazy operator-(MontIntLazy lhs, MontIntLazy rhs)
+                {
+                    return lhs -= rhs;
+                }
+                friend MontIntLazy operator*(MontIntLazy lhs, MontIntLazy rhs)
+                {
+                    ProdTypeFast prod = ProdTypeFast(lhs.data) * rhs.data;
+                    lhs.data = redcLazy(prod);
+                    return lhs;
                 }
                 constexpr MontIntLazy operator-() const
                 {
@@ -1970,18 +2010,21 @@ namespace hint
                 }
                 static constexpr IntType norm1(IntType n)
                 {
-                    return n >= MOD ? n - MOD : n;
+                    const IntType mask = IntType(0) - (n >= mod());
+                    return n - (MOD & mask);
                 }
                 static constexpr IntType norm2(IntType n)
                 {
-                    constexpr IntType MOD2 = MOD * 2;
-                    return n >= MOD2 ? n - MOD2 : n;
+                    constexpr IntType MOD2 = mod<2>();
+                    const IntType mask = IntType(0) - (n >= MOD2);
+                    return n - (MOD2 & mask);
                 }
                 template <IntType N = 1>
                 static constexpr IntType norm(IntType n)
                 {
-                    constexpr IntType MOD_N = MOD * N;
-                    return n >= MOD_N ? n - MOD_N : n;
+                    constexpr IntType MOD_N = mod<N>();
+                    const IntType mask = IntType(0) - (n >= MOD_N);
+                    return n - (MOD_N & mask);
                 }
                 constexpr MontIntLazy add(MontIntLazy rhs) const
                 {
@@ -1990,7 +2033,7 @@ namespace hint
                 }
                 constexpr MontIntLazy sub(MontIntLazy rhs) const
                 {
-                    rhs.data = data - rhs.data + mod<2>();
+                    rhs.data = data - rhs.data + MOD2;
                     return rhs;
                 }
                 constexpr operator IntType() const
@@ -2081,7 +2124,7 @@ namespace hint
                     utility::mul64x64to128_base(prod1, mod(), lo, hi);
                     Uint128 prod2{lo, hi};
                     prod2 += n;
-                    return norm1(prod2.high64());
+                    return norm<1>(prod2.high64());
                 }
 
                 static constexpr MontIntLazy one()
@@ -2091,7 +2134,7 @@ namespace hint
                 }
                 static constexpr MontIntLazy negOne()
                 {
-                    constexpr MontIntLazy res(MOD - 1);
+                    constexpr MontIntLazy res(mod() - 1);
                     return res;
                 }
                 constexpr MontIntLazy inv() const
@@ -2102,6 +2145,21 @@ namespace hint
             private:
                 IntType data;
             };
+
+            template <uint64_t MOD>
+            constexpr int MontIntLazy<MOD>::MOD_BITS;
+            template <uint64_t MOD>
+            constexpr int MontIntLazy<MOD>::R_BITS;
+            template <uint64_t MOD>
+            constexpr typename MontIntLazy<MOD>::IntType MontIntLazy<MOD>::R;
+            template <uint64_t MOD>
+            constexpr typename MontIntLazy<MOD>::IntType MontIntLazy<MOD>::R2;
+            template <uint64_t MOD>
+            constexpr typename MontIntLazy<MOD>::IntType MontIntLazy<MOD>::MOD_INV;
+            template <uint64_t MOD>
+            constexpr typename MontIntLazy<MOD>::IntType MontIntLazy<MOD>::MOD_INV_NEG;
+            template <uint64_t MOD>
+            constexpr typename MontIntLazy<MOD>::IntType MontIntLazy<MOD>::MOD2;
 
             // in: in_out0<4p, in_ou1<4p
             // out: in_out0<4p, in_ou1<4p
@@ -2223,7 +2281,7 @@ namespace hint
                 static constexpr size_t LONG_THRESHOLD = LONG_BYTE / sizeof(ModInt);
                 static constexpr size_t SHORT_THRESHOLD = 15;
 
-                static size_t findFitLen(size_t conv_len)
+                static size_t findFitLen(size_t conv_len) noexcept
                 {
                     size_t result = findFitLen(conv_len, SHORT_THRESHOLD);
                     // 长度为2的幂次且过长时将造成L1缓存颠簸，需要将长度转为非2的幂次
@@ -2236,7 +2294,8 @@ namespace hint
                     }
                     return result;
                 }
-                static void convolution(IntType in_out[], IntType in[], size_t conv_len, ModInt weight = ModInt::one())
+                static void convolution(IntType in_out[], IntType in[], size_t conv_len,
+                                        ModInt weight = ModInt::one()) noexcept
                 {
                     assert(checkConvLen(conv_len)); // check if conv_len is too long
                     auto p1 = reinterpret_cast<ModInt *>(in_out), p2 = reinterpret_cast<ModInt *>(in);
@@ -2255,7 +2314,8 @@ namespace hint
                     convolutionCyclic(in_out, in, conv_len, conv_len, conv_len, buffer, ibuffer, weight);
                 }
 
-                static void convolution(IntType in_out[], IntType in[], size_t len1, size_t len2, size_t conv_len, ModInt weight = ModInt::one())
+                static void convolution(IntType in_out[], IntType in[], size_t len1, size_t len2, size_t conv_len,
+                                        ModInt weight = ModInt::one()) noexcept
                 {
                     assert(len1 + len2 - 1 <= conv_len);
                     assert(checkConvLen(conv_len)); // check if conv_len is too long
@@ -2281,7 +2341,7 @@ namespace hint
                 }
 
             private:
-                static size_t forwardCyclic(ModInt in_out[], size_t len, ModInt buffer[], bool assign_buf)
+                static size_t forwardCyclic(ModInt in_out[], size_t len, ModInt buffer[], bool assign_buf) noexcept
                 {
                     auto p_buf = buffer;
                     for (size_t rank = len; rank > SHORT_THRESHOLD * 2; rank /= 2, p_buf++)
@@ -2310,7 +2370,7 @@ namespace hint
                     }
                     return p_buf - buffer;
                 }
-                static size_t forwardIter(ModInt in_out[], size_t len, ModInt buffer[], size_t idx, bool assign_buf)
+                static size_t forwardIter(ModInt in_out[], size_t len, ModInt buffer[], size_t idx, bool assign_buf) noexcept
                 {
                     auto p_buf = buffer;
                     for (size_t rank = len; rank > SHORT_THRESHOLD * 2; rank /= 2, idx *= 2, p_buf++)
@@ -2333,7 +2393,7 @@ namespace hint
                     }
                     return p_buf - buffer;
                 }
-                static void backwardCyclic(ModInt in_out[], size_t len, size_t rank, ModInt ibuffer[])
+                static void backwardCyclic(ModInt in_out[], size_t len, size_t rank, ModInt ibuffer[]) noexcept
                 {
                     for (; rank <= len; rank *= 2, ibuffer++)
                     {
@@ -2356,7 +2416,7 @@ namespace hint
                         ibuffer[0] = omega;
                     }
                 }
-                static void backwardIter(ModInt in_out[], size_t len, size_t rank, ModInt ibuffer[], size_t idx)
+                static void backwardIter(ModInt in_out[], size_t len, size_t rank, ModInt ibuffer[], size_t idx) noexcept
                 {
                     for (; rank <= len; rank *= 2, idx /= 2, ibuffer++)
                     {
@@ -2375,7 +2435,7 @@ namespace hint
                     }
                 }
 
-                static void forwardIter(ModInt inout0[], ModInt inout1[], size_t rank, ModInt omega)
+                static void forwardIter(ModInt inout0[], ModInt inout1[], size_t rank, ModInt omega) noexcept
                 {
                     auto it0 = inout0, it1 = it0 + rank, end = it1;
                     auto it2 = inout1, it3 = it2 + rank;
@@ -2386,7 +2446,8 @@ namespace hint
                     }
                 }
 
-                static size_t convolutionIterCyclic(ModInt in_out[], ModInt in[], size_t conv_len, ModInt buffer[], ModInt ibuffer[])
+                static size_t convolutionIterCyclic(ModInt in_out[], ModInt in[], size_t conv_len,
+                                                    ModInt buffer[], ModInt ibuffer[]) noexcept
                 {
                     if (in_out != in)
                     {
@@ -2408,7 +2469,8 @@ namespace hint
                     backwardCyclic(in_out, conv_len, rank * 2, ibuffer);
                     return factor;
                 }
-                static void convolutionIter(ModInt in_out[], ModInt in[], size_t conv_len, ModInt buffer[], ModInt ibuffer[], size_t idx)
+                static void convolutionIter(ModInt in_out[], ModInt in[], size_t conv_len,
+                                            ModInt buffer[], ModInt ibuffer[], size_t idx) noexcept
                 {
                     if (in_out != in)
                     {
@@ -2430,7 +2492,8 @@ namespace hint
                     backwardIter(in_out, conv_len, rank * 2, ibuffer, idx);
                 }
 
-                static void convolutionCyclic(IntType in_out[], IntType in[], size_t len1, size_t len2, size_t conv_len, ModInt buffer[], ModInt ibuffer[], ModInt weight)
+                static void convolutionCyclic(IntType in_out[], IntType in[], size_t len1, size_t len2, size_t conv_len,
+                                              ModInt buffer[], ModInt ibuffer[], ModInt weight) noexcept
                 {
                     auto p1 = reinterpret_cast<ModInt *>(in_out), p2 = reinterpret_cast<ModInt *>(in);
                     if (conv_len <= ITER_THRESHOLD)
@@ -2489,10 +2552,10 @@ namespace hint
                         if (it0 < inout + stride)
                         {
                             const size_t size = (inout + stride - it0) * sizeof(ModInt);
-                            std::memset(&it0[0], size, 0);
-                            std::memset(&it1[0], size, 0);
-                            std::memset(&it2[0], size, 0);
-                            std::memset(&it3[0], size, 0);
+                            std::memset(&it0[0], 0, size);
+                            std::memset(&it1[0], 0, size);
+                            std::memset(&it2[0], 0, size);
+                            std::memset(&it3[0], 0, size);
                         }
                     };
                     forwardIter(p1, len1);
@@ -2519,7 +2582,8 @@ namespace hint
                         it2[0] = (t0.sub(t2) * inv).norm1(), it3[0] = (t1.sub(t3) * inv).norm1();
                     }
                 }
-                static size_t convolutionCyclic(ModInt in_out[], ModInt in[], size_t conv_len, ModInt buffer[], ModInt ibuffer[])
+                static size_t convolutionCyclic(ModInt in_out[], ModInt in[], size_t conv_len,
+                                                ModInt buffer[], ModInt ibuffer[]) noexcept
                 {
                     if (conv_len <= ITER_THRESHOLD)
                     {
@@ -2565,7 +2629,8 @@ namespace hint
                     }
                     return ret * 4;
                 }
-                static void convolution(ModInt in_out[], ModInt in[], size_t conv_len, ModInt buffer[], ModInt ibuffer[], size_t idx)
+                static void convolution(ModInt in_out[], ModInt in[], size_t conv_len,
+                                        ModInt buffer[], ModInt ibuffer[], size_t idx) noexcept
                 {
                     if (conv_len <= ITER_THRESHOLD)
                     {
@@ -2616,7 +2681,7 @@ namespace hint
                         it0[0] = t0, it1[0] = t1, it2[0] = t2, it3[0] = t3;
                     }
                 }
-                static void convolutionLinear(const ModInt in1[], const ModInt in2[], ModInt out[], size_t conv_len)
+                static void convolutionLinear(const ModInt in1[], const ModInt in2[], ModInt out[], size_t conv_len) noexcept
                 {
                     if (0 == conv_len)
                     {
@@ -2640,7 +2705,7 @@ namespace hint
                     }
                 }
                 // in_out = in_out * in % (x ^ conv_len - 1)
-                static void convolutionCyclicShort(ModInt in_out[], ModInt in[], size_t conv_len)
+                static void convolutionCyclicShort(ModInt in_out[], ModInt in[], size_t conv_len) noexcept
                 {
                     ModInt temp[SHORT_THRESHOLD * 2];
                     const size_t rem_len = conv_len - conv_len % 4;
@@ -2654,7 +2719,7 @@ namespace hint
                     in_out[last_idx] = temp[last_idx];
                 }
                 // in_out = in_out * in % (x ^ conv_len - omega)
-                static void convolutionShort(ModInt in_out[], ModInt in[], size_t conv_len, ModInt omega)
+                static void convolutionShort(ModInt in_out[], ModInt in[], size_t conv_len, ModInt omega) noexcept
                 {
                     ModInt temp[SHORT_THRESHOLD * 2];
                     const size_t rem_len = conv_len - conv_len % 4;
@@ -2667,7 +2732,7 @@ namespace hint
                     }
                     in_out[last_idx] = temp[last_idx];
                 }
-                static bool checkConvLen(size_t conv_len)
+                static constexpr bool checkConvLen(size_t conv_len) noexcept
                 {
                     int tail_zeros = hint_ctz(conv_len);
                     size_t head = conv_len >> tail_zeros;
@@ -2682,7 +2747,7 @@ namespace hint
                     }
                     return (size_t(1) << tail_zeros) <= NTT_MAX_LEN;
                 }
-                static size_t findFitLen(size_t len, size_t factor_range)
+                static constexpr size_t findFitLen(size_t len, size_t factor_range) noexcept
                 {
                     const size_t conv_len = hint::int_ceil2(len);
                     size_t result = conv_len;
@@ -2706,6 +2771,22 @@ namespace hint
             const typename NTT<MOD, ROOT>::TableType NTT<MOD, ROOT>::table{NTT<MOD, ROOT>::root(), 1, 2};
             template <uint64_t MOD, uint64_t ROOT>
             const typename NTT<MOD, ROOT>::TableType NTT<MOD, ROOT>::itable{NTT<MOD, ROOT>::rootInv(), 1, 2};
+            template <uint64_t MOD, uint64_t ROOT>
+            constexpr int NTT<MOD, ROOT>::MOD_BITS;
+            template <uint64_t MOD, uint64_t ROOT>
+            constexpr int NTT<MOD, ROOT>::MAX_LOG_LEN;
+            template <uint64_t MOD, uint64_t ROOT>
+            constexpr size_t NTT<MOD, ROOT>::NTT_MAX_LEN;
+            template <uint64_t MOD, uint64_t ROOT>
+            constexpr size_t NTT<MOD, ROOT>::L1_BYTE;
+            template <uint64_t MOD, uint64_t ROOT>
+            constexpr size_t NTT<MOD, ROOT>::LONG_BYTE;
+            template <uint64_t MOD, uint64_t ROOT>
+            constexpr size_t NTT<MOD, ROOT>::ITER_THRESHOLD;
+            template <uint64_t MOD, uint64_t ROOT>
+            constexpr size_t NTT<MOD, ROOT>::LONG_THRESHOLD;
+            template <uint64_t MOD, uint64_t ROOT>
+            constexpr size_t NTT<MOD, ROOT>::SHORT_THRESHOLD;
 
             using NTT64_1 = NTT<MOD0, ROOT0>;
             using NTT64_2 = NTT<MOD1, ROOT1>;
@@ -2856,7 +2937,7 @@ namespace hint
             template <typename UintTy>
             constexpr void abs_add_binary(const UintTy a[], size_t len_a, const UintTy b[], size_t len_b, UintTy sum[])
             {
-                constexpr utility::BaseExecutorBinary exec;
+                constexpr utility::BaseExecutorBinary<UintTy> exec;
                 abs_add(a, len_a, b, len_b, sum, exec);
             }
             template <typename UintTy>
@@ -2868,7 +2949,7 @@ namespace hint
             template <typename UintTy>
             constexpr void abs_sub_binary(const UintTy a[], size_t len_a, const UintTy b[], size_t len_b, UintTy diff[])
             {
-                constexpr utility::BaseExecutorBinary exec;
+                constexpr utility::BaseExecutorBinary<UintTy> exec;
                 abs_sub(a, len_a, b, len_b, diff, exec);
             }
             template <typename UintTy>
@@ -3154,7 +3235,7 @@ namespace hint
 
             template <typename NumTy, typename Executor>
             void abs_mul_ntt(const NumTy in1[], size_t len1, const NumTy in2[], size_t len2, NumTy out[],
-                             const Executor &exec)
+                             const Executor &exec) noexcept
             {
                 if (0 == len1 || 0 == len2 || nullptr == in1 || nullptr == in2)
                 {
@@ -3207,7 +3288,7 @@ namespace hint
         {
             // out = in / divisor, return remainder
             template <typename NumTy, typename Executor>
-            NumTy abs_div_num(const NumTy in[], size_t len, NumTy out[], NumTy divisor, Executor &exec)
+            inline NumTy abs_div_num(const NumTy in[], size_t len, NumTy out[], NumTy divisor, Executor &exec)
             {
                 assert(divisor > 0);
                 assert(exec.checkDivisor(divisor));
@@ -3222,6 +3303,32 @@ namespace hint
                     out[i] = div_exe.divRem(hi, lo, remainder);
                 }
                 return remainder;
+            }
+
+            template <typename NumTy, typename Executor>
+            inline void abs_div_basic(NumTy dividend[], size_t len1, const NumTy divisor[], size_t len2,
+                                      NumTy quotient[], Executor &exec)
+            {
+                len2 = utility::count_ture_length(divisor, len2);
+                assert(len2 > 0);
+                assert(divisor[len2 - 1] >= exec.halfBase());
+                if (len2 == 1)
+                {
+                    NumTy rem = abs_div_num_norm(dividend, len1, quotient, divisor[0], exec);
+                    dividend[0] = rem;
+                    return;
+                }
+                assert(len1 >= len2);
+            }
+
+            template <typename NumTy, typename Executor>
+            inline void abs_div_rec(const NumTy in[], size_t len, NumTy out[], NumTy divisor, Executor &exec)
+            {
+            }
+
+            template <typename NumTy, typename Executor>
+            inline void abs_div(const NumTy in[], size_t len, NumTy out[], NumTy divisor, Executor &exec)
+            {
             }
         }
         namespace base_conversion
@@ -3380,6 +3487,6 @@ namespace hint
     template <typename NumTy, typename Container, typename BaseExecutor, NumTy BASE>
     constexpr BaseExecutor HyperIntImpl<NumTy, Container, BaseExecutor, BASE>::exec;
 
-    using HyperIntHex = HyperIntImpl<uint64_t, std::vector<uint64_t>, utility::BaseExecutorBinary, 64>;
+    using HyperIntHex = HyperIntImpl<uint64_t, std::vector<uint64_t>, utility::BaseExecutorBinary<uint64_t>, 64>;
 }
 #endif
