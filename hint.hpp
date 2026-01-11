@@ -46,6 +46,26 @@ namespace hint
     using HintULL = unsigned long long;
     static_assert(sizeof(HintULL) == sizeof(uint64_t), "HintULL is not 64bits");
 
+    template <typename IterIn, typename IterOut>
+    inline void hint_memcpy(IterIn begin, IterIn end, IterOut out)
+    {
+        hint_memcpy_n(begin, out, end - begin);
+    }
+    template <typename IterIn, typename IterOut>
+    inline void hint_memcpy_n(IterIn begin, IterOut out, size_t n)
+    {
+        using TIn = typename std::iterator_traits<IterIn>::value_type;
+        using TOut = typename std::iterator_traits<IterOut>::value_type;
+        static_assert(sizeof(TIn) == sizeof(TOut), "hint_memcpy: begin and out must be the same type");
+        static_assert(std::is_trivially_copyable<TIn>::value, "hint_memcpy: begin must be trivially copyable");
+        static_assert(std::is_trivially_copyable<TOut>::value, "hint_memcpy: out must be trivially copyable");
+        if (&begin[0] == &out[0] || 0 == n)
+        {
+            return;
+        }
+        std::memmove(&out[0], &begin[0], n * sizeof(*begin));
+    }
+
     template <typename IntTy>
     constexpr bool is_2pow(IntTy n)
     {
@@ -510,6 +530,14 @@ namespace hint
             return y;
         }
 
+        template <typename T>
+        bool cmp2_less(T a_hi, T a_lo, T b_hi, T b_lo)
+        {
+            b_lo = a_lo - b_lo;
+            b_hi = a_hi - b_hi - (b_lo > a_lo);
+            return b_hi > a_hi;
+        }
+
         template <typename Ui64>
         constexpr void mul64x64to128_base(uint64_t a, uint64_t b, Ui64 &low, Ui64 &high)
         {
@@ -601,8 +629,8 @@ namespace hint
                 qhat--;
                 prod -= divisor;
                 divid2 += divis1;
-                // if divid2 <= divis1, the addtion of divid2 is overflow, so prod must not be larger than divid2.
-                if ((divid2 > divis1) && (prod > divid2)) [[unlikely]]
+                // if divid2 < divis1, the addtion of divid2 is overflow, so prod must not be larger than divid2.
+                if ((divid2 >= divis1) && (prod > divid2)) [[unlikely]]
                 {
                     qhat--;
                     prod -= divisor;
@@ -842,6 +870,71 @@ namespace hint
         }
 
         template <typename UintTy>
+        inline UintTy mul_add_x4_basic(const UintTy in[], size_t len, UintTy out[], UintTy num_mul, UintTy num_add)
+        {
+            for (size_t i = 0; i < len; i += 4)
+            {
+                num_add = mul_add_x4(in + i, num_mul, num_add, out + i);
+            }
+            return num_add;
+        }
+
+        template <typename UintTy>
+        inline UintTy mul_add_x4(const UintTy in[], size_t len, UintTy out[], UintTy num_mul, UintTy num_add)
+        {
+            static_assert(std::is_integral<UintTy>::value, "Input type must be integral type");
+            len -= len % 4;
+            return mul_add_x4_basic(in, len, out, num_mul, num_add);
+        }
+        inline uint64_t mul_add_x4(const uint64_t in[], size_t len, uint64_t out[], uint64_t num_mul, uint64_t num_add)
+        {
+            len -= len % 4;
+            if (len == 0)
+            {
+                return num_add;
+            }
+#if defined(HINT_ASM) && defined(__BMI2__)
+#pragma message("Using MULX to compute 256bit = 256bit * num_mul + num_add")
+            auto end = in + len;
+            asm volatile(
+                "MOVQ %2, %%R12\n\t"
+                "MOVQ %4, %%R13\n\t"
+                "XORQ %%R11, %%R11\n\t"
+                "LOOP_ADX%=:\n\t"
+
+                "MULX (%%R12), %%RAX, %%R10\n\t" // RAX = lo0, R10 = hi0
+                "ADDQ %0, %%RAX\n\t"
+                "MOVQ %%RAX, (%%R13)\n\t"
+
+                "MULX 8(%%R12), %%RAX, %0\n\t" // RAX = lo1, %0 = hi1
+                "ADCQ %%R10, %%RAX\n\t"
+                "MOVQ %%RAX, 8(%%R13)\n\t"
+
+                "MULX 16(%%R12), %%RAX, %%R10\n\t" // RAX = lo2, R10 = hi2
+                "ADCQ %0, %%RAX\n\t"
+                "MOVQ %%RAX, 16(%%R13)\n\t"
+
+                "MULX 24(%%R12), %%RAX, %0\n\t" // RAX = lo3, %0 = hi3
+                "ADCQ %%R10, %%RAX\n\t"
+                "MOVQ %%RAX, 24(%%R13)\n\t"
+
+                "ADCQ %%R11, %0\n\t"
+
+                "LEAQ 32(%%R12), %%R12\n\t"
+                "LEAQ 32(%%R13), %%R13\n\t"
+                "CMPQ %3,  %%R12\n\t"
+                "JB LOOP_ADX%=\n\t"
+                : "+r"(num_add)
+                : "d"(num_mul), "r"(in), "r"(end), "r"(out)
+                : "cc", "memory", "rax", "r10", "r11", "r12", "r13");
+            return num_add;
+#else
+#pragma message("Using basic function to compute 256bit = 256bit * num_mul + num_add")
+            return mul_add_x4_basic(in, len, out, num_mul, num_add);
+#endif
+        }
+
+        template <typename UintTy>
         inline void mul_add_plus_self(UintTy in, UintTy num_mul, UintTy &out, UintTy &carry)
         {
             bool cf;
@@ -855,7 +948,6 @@ namespace hint
         template <typename UintTy>
         inline UintTy add_eq_mul_add_x8_basic(const UintTy in[], size_t len, UintTy out[], UintTy num_mul, UintTy num_add)
         {
-            len -= len % 8;
             for (size_t i = 0; i < len; i += 8)
             {
                 mul_add_plus_self(in[i], num_mul, out[i], num_add);
@@ -873,14 +965,19 @@ namespace hint
         inline UintTy add_eq_mul_add_x8(const UintTy in[], size_t len, UintTy out[], UintTy num_mul, UintTy num_add)
         {
             static_assert(std::is_integral<UintTy>::value, "Input type must be integral type");
+            len -= len % 8;
             return add_eq_mul_add_x8_basic(in, len, out, num_mul, num_add);
         }
 
         inline uint64_t add_eq_mul_add_x8(const uint64_t in[], size_t len, uint64_t out[], uint64_t num_mul, uint64_t num_add)
         {
             len -= len % 8;
+            if (len == 0)
+            {
+                return num_add;
+            }
 #if defined(HINT_ASM) && defined(__ADX__) && defined(__BMI2__)
-#pragma message("Using ADX to compute 256bit += 256bit * num_mul + num_add")
+#pragma message("Using ADX & MULX to compute 256bit += 256bit * num_mul + num_add")
             auto end = in + len;
             asm volatile(
                 "MOVQ %2, %%R12\n\t"
@@ -931,8 +1028,8 @@ namespace hint
                 "ADCX %%R11, %0\n\t"
                 "ADOX %%R11, %0\n\t"
 
-                "ADDQ $64, %%R12\n\t"
-                "ADDQ $64, %%R13\n\t"
+                "LEAQ 64(%%R12), %%R12\n\t"
+                "LEAQ 64(%%R13), %%R13\n\t"
                 "CMPQ %3,  %%R12\n\t"
                 "JB LOOP_ADX%=\n\t"
                 : "+r"(num_add)
@@ -943,6 +1040,14 @@ namespace hint
 #pragma message("Using basic function to compute 256bit += 256bit * num_mul + num_add")
             return add_eq_mul_add_x8_basic(in, len, out, num_mul, num_add);
 #endif
+        }
+
+        template <typename UintTy>
+        constexpr UintTy lshift(UintTy &in_out, uint8_t shift, uint8_t shift_rem)
+        {
+            UintTy x = in_out;
+            in_out <<= shift;
+            return x >> shift_rem;
         }
 
         // uint64_t to std::string
@@ -1289,7 +1394,7 @@ namespace hint
                 static Uint192 mul128x64(Uint128 a, uint64_t b)
                 {
                     Uint192 result;
-                    uint64_t lo, hi;
+                    uint64_t lo;
                     mul64x64to128(b, a.low64(), result.low, result.mid);
                     mul64x64to128(b, a.high64(), lo, result.high);
                     result.mid += lo;
@@ -1388,16 +1493,22 @@ namespace hint
             {
                 assert(divisor > 1);
                 inv = getInv(divisor, shift);
+                rshift = NUM_BITS - shift;
                 divisor <<= shift;
+                mask = NumTy(0) - NumTy(shift > 0);
+            }
+            // Return dividend / divisor, dividend %= divisor
+            NumTy div(NumTy dividend_hi, NumTy dividend_lo) const
+            {
+                dividend_hi = (dividend_hi << shift) | ((dividend_lo >> rshift) & mask);
+                dividend_lo <<= shift;
+                return divRemNorm(dividend_hi, dividend_lo, dividend_lo);
             }
             // Return dividend / divisor, dividend %= divisor
             NumTy divRem(NumTy dividend_hi, NumTy dividend_lo, NumTy &rem) const
             {
-                if (shift > 0)
-                {
-                    dividend_hi = (dividend_hi << shift) | dividend_lo >> (NUM_BITS - shift);
-                    dividend_lo <<= shift;
-                }
+                dividend_hi = (dividend_hi << shift) | ((dividend_lo >> rshift) & mask);
+                dividend_lo <<= shift;
                 NumTy quot = divRemNorm(dividend_hi, dividend_lo, rem);
                 rem >>= shift;
                 return quot;
@@ -1443,7 +1554,8 @@ namespace hint
 
             NumTy divisor = 0;
             NumTy inv = 0;
-            int shift = 0;
+            NumTy mask = 0;
+            int shift = 0, rshift = 0;
             static constexpr int NUM_BITS = sizeof(NumTy) * CHAR_BIT;
         };
         template <typename NumTy>
@@ -1455,8 +1567,6 @@ namespace hint
         public:
             static constexpr int NUM_BITS = sizeof(NumTy) * CHAR_BIT;
             static_assert(std::is_unsigned<NumTy>::value, "BaseExecutor only supports unsigned integer types");
-            // using ProdTy = typename UintType<NUM_BITS>::NextType::Type;
-            // using SignTy = typename UintType<NUM_BITS>::SignType;
             constexpr BaseExecutor(NumTy base_in) : base(base_in), div_exe(base_in)
             {
                 assert(2 <= base);
@@ -1466,6 +1576,10 @@ namespace hint
             constexpr NumTy halfBase() const
             {
                 return (base + 1) / 2;
+            }
+            constexpr NumTy maxNum() const
+            {
+                return base - 1;
             }
 
             constexpr bool checkDivisor(NumTy divisor) const
@@ -1479,6 +1593,7 @@ namespace hint
             }
             constexpr NumTy addHalf(NumTy a, NumTy b, bool &cf) const
             {
+                // TODO optimize branchless version
                 if (a >= base - b)
                 {
                     a -= base;
@@ -1655,6 +1770,10 @@ namespace hint
             {
                 return UintTy(1) << (NUM_BITS - 1);
             }
+            static constexpr UintTy maxNum()
+            {
+                return MAX_NUM;
+            }
 
             template <typename T>
             static constexpr bool checkDivisor(T divisor)
@@ -1724,17 +1843,11 @@ namespace hint
                 lo_bin = lo;
                 hi_bin = hi;
             }
-
+            // TODO: rename argument name
             static void mulAdd(UintTy a, UintTy b, UintTy c, UintTy &lo, UintTy &hi) noexcept
             {
                 mul_add(a, b, c, lo, hi);
             }
-
-            static UintTy mulAddX4(const UintTy in[4], UintTy num_mul, UintTy num_add, UintTy out[4]) noexcept
-            {
-                return mul_add_x4(in, num_mul, num_add, out);
-            }
-
             static void mulAddPlusSelf(UintTy in, UintTy num_mul, UintTy &out, UintTy &carry) noexcept
             {
                 mul_add_plus_self(in, num_mul, out, carry);
@@ -1742,6 +1855,10 @@ namespace hint
             static UintTy addEqMulAddX8(const UintTy in[], size_t len, UintTy out[], UintTy num_mul, UintTy num_add) noexcept
             {
                 return add_eq_mul_add_x8(in, len, out, num_mul, num_add);
+            }
+            static UintTy mulAddX4(const UintTy in[], size_t len, UintTy out[], UintTy num_mul, UintTy num_add) noexcept
+            {
+                return mul_add_x4(in, len, out, num_mul, num_add);
             }
         };
         template <uint64_t MOD1, uint64_t MOD2, uint64_t MOD3>
@@ -1837,6 +1954,105 @@ namespace hint
         {
             return abs_compare_with_length(in1, len1, in2, len2).cmp;
         }
+
+        // Binary left shift in word
+        template <typename WordTy>
+        constexpr WordTy lshift_in_word_half(const WordTy in[], size_t len, WordTy out[], uint8_t shift)
+        {
+            constexpr int WORD_BITS = sizeof(WordTy) * CHAR_BIT;
+            assert(shift >= 0 && shift < WORD_BITS);
+            if (0 == len)
+            {
+                return 0;
+            }
+            if (0 == shift && in != out)
+            {
+                hint_memcpy_n(in, out, len);
+                return 0;
+            }
+            WordTy last = in[len - 1], ret = last;
+            const int shift_rem = WORD_BITS - shift;
+            auto shiftx4 = [shift, shift_rem, &last](const WordTy input[], WordTy output[])
+            {
+                auto x0 = input[0], x1 = input[1], x2 = input[2], x3 = input[3];
+                auto y0 = x1 << shift, y1 = x2 << shift, y2 = x3 << shift, y3 = last << shift;
+                last = x0;
+                x0 >>= shift_rem, x1 >>= shift_rem, x2 >>= shift_rem, x3 >>= shift_rem;
+                output[0] = y0 | x0;
+                output[1] = y1 | x1;
+                output[2] = y2 | x2;
+                output[3] = y3 | x3;
+            };
+            size_t i = len - 1;
+            while (i > 3)
+            {
+                i -= 4;
+                shiftx4(in + i, out + 1 + i);
+            }
+            while (i > 0)
+            {
+                i--;
+                WordTy n = in[i];
+                out[i + 1] = (last << shift) | (n >> shift_rem);
+                last = n;
+            }
+            out[0] = last << shift;
+            return ret >> shift_rem;
+        }
+        template <typename WordTy>
+        constexpr void lshift_in_word(const WordTy in[], size_t len, WordTy out[], uint8_t shift)
+        {
+            if (0 == len)
+            {
+                return;
+            }
+            assert(shift >= 0 && size_t(shift) < sizeof(WordTy) * CHAR_BIT);
+            uint64_t last = lshift_in_word_half(in, len, out, shift);
+            out[len] = last;
+        }
+
+        template <typename WordTy>
+        constexpr void lshift_binary(const WordTy in[], size_t len, WordTy out[], size_t shift)
+        {
+            if (0 == len)
+            {
+                return;
+            }
+            constexpr int WORD_BITS = sizeof(WordTy) * CHAR_BIT;
+            size_t block_shift = shift / WORD_BITS, in_word_shift = shift % WORD_BITS;
+            if (0 == in_word_shift)
+            {
+                std::copy(in, in + len, out + block_shift);
+                return;
+            }
+            lshift_in_word(in, len, out + block_shift, in_word_shift);
+            std::fill_n(out, block_shift, WordTy{});
+        }
+
+        template <typename WordTy>
+        constexpr void rshift_in_word(const WordTy in[], size_t len, WordTy out[], int shift)
+        {
+            constexpr int WORD_BITS = sizeof(WordTy) * CHAR_BIT;
+            if (0 == len)
+            {
+                return;
+            }
+            if (0 == shift)
+            {
+                std::copy(in, in + len, out);
+                return;
+            }
+            assert(shift >= 0 && size_t(shift) < sizeof(WordTy) * CHAR_BIT);
+            WordTy last = in[0];
+            const int shift_rem = WORD_BITS - shift;
+            for (size_t i = 1; i < len; i++)
+            {
+                WordTy n = in[i];
+                out[i - 1] = (last >> shift) | (n << shift_rem);
+                last = n;
+            }
+            out[len - 1] = last >> shift;
+        }
     }
     namespace transform
     {
@@ -1923,11 +2139,12 @@ namespace hint
             {
             public:
                 static constexpr int MOD_BITS = hint_log2(MOD) + 1;
-                static_assert(MOD_BITS <= 30 || 32 < MOD_BITS && MOD_BITS <= 62, "MOD_BITS not in range [0, 30] or [33, 62]");
+                static_assert(MOD_BITS <= 30 || (32 < MOD_BITS && MOD_BITS <= 62), "MOD_BITS not in range [0, 30] or [33, 62]");
 
                 using Uint128Fast = utility::extend_int::Uint128Defaulf;
                 using Uint128 = utility::extend_int::Uint128;
                 using IntType = typename std::conditional<MOD_BITS <= 30, uint32_t, uint64_t>::type;
+                using SignType = typename std::make_signed<IntType>::type;
                 using ProdTypeFast = typename std::conditional<MOD_BITS <= 30, uint64_t, Uint128Fast>::type;
                 using ProdType = typename std::conditional<MOD_BITS <= 30, uint64_t, Uint128>::type;
                 static constexpr int R_BITS = sizeof(IntType) * CHAR_BIT;
@@ -1991,15 +2208,11 @@ namespace hint
                 }
                 constexpr MontIntLazy norm1() const
                 {
-                    MontIntLazy res{};
-                    res.data = norm1(data);
-                    return res;
+                    return this->norm<1>();
                 }
                 constexpr MontIntLazy norm2() const
                 {
-                    MontIntLazy res{};
-                    res.data = norm2(data);
-                    return res;
+                    return this->norm<2>();
                 }
                 template <IntType N = 1>
                 constexpr MontIntLazy norm() const
@@ -2010,14 +2223,11 @@ namespace hint
                 }
                 static constexpr IntType norm1(IntType n)
                 {
-                    const IntType mask = IntType(0) - (n >= mod());
-                    return n - (MOD & mask);
+                    return norm<1>(n);
                 }
                 static constexpr IntType norm2(IntType n)
                 {
-                    constexpr IntType MOD2 = mod<2>();
-                    const IntType mask = IntType(0) - (n >= MOD2);
-                    return n - (MOD2 & mask);
+                    return norm<2>(n);
                 }
                 template <IntType N = 1>
                 static constexpr IntType norm(IntType n)
@@ -2708,7 +2918,6 @@ namespace hint
                 static void convolutionCyclicShort(ModInt in_out[], ModInt in[], size_t conv_len) noexcept
                 {
                     ModInt temp[SHORT_THRESHOLD * 2];
-                    const size_t rem_len = conv_len - conv_len % 4;
                     convolutionLinear(in_out, in, temp, conv_len);
                     const size_t last_idx = conv_len - 1;
                     auto cyclic_it = temp + conv_len;
@@ -2722,7 +2931,6 @@ namespace hint
                 static void convolutionShort(ModInt in_out[], ModInt in[], size_t conv_len, ModInt omega) noexcept
                 {
                     ModInt temp[SHORT_THRESHOLD * 2];
-                    const size_t rem_len = conv_len - conv_len % 4;
                     convolutionLinear(in_out, in, temp, conv_len);
                     const size_t last_idx = conv_len - 1;
                     auto cyclic_it = temp + conv_len;
@@ -2965,6 +3173,7 @@ namespace hint
             constexpr size_t STACK_MAX_LEN = 1024;
             constexpr size_t BASIC_THRESHOLD = 32;
             constexpr size_t KARATSUBA_THRESHOLD = 2048;
+
             // out = in * num_mul + num_add, return carry
             template <typename NumTy, typename Executor>
             [[nodiscard]] inline NumTy abs_mul_add_num(const NumTy in[], size_t len, NumTy out[], NumTy num_mul, NumTy num_add,
@@ -2975,16 +3184,21 @@ namespace hint
                     std::fill(out, out + len, num_add);
                     return len > 0 ? 0 : num_add;
                 }
-                size_t i = 0;
-                for (const size_t rem_len = len - len % 4; i < rem_len; i += 4)
-                {
-                    num_add = exec.mulAddX4(in + i, num_mul, num_add, out + i);
-                }
-                for (; i < len; i++)
+                size_t rem = len % 4;
+                num_add = exec.mulAddX4(in, len - rem, out, num_mul, num_add);
+                for (size_t i = len - rem; i < len; i++)
                 {
                     exec.mulAdd(in[i], num_mul, num_add, out[i], num_add);
                 }
                 return num_add;
+            }
+
+            // out = in * num_mul + num_add, return carry
+            template <typename NumTy, typename Executor>
+            [[nodiscard]] inline NumTy abs_mul_num(const NumTy in[], size_t len, NumTy out[], NumTy num_mul,
+                                                   const Executor &exec)
+            {
+                return abs_mul_add_num(in, len, out, num_mul, NumTy(0), exec);
             }
 
             // out = out + in * num_mul + num_add, return carry
@@ -3032,7 +3246,19 @@ namespace hint
                 }
                 return num_add;
             }
-
+            template <typename NumTy, typename Executor>
+            inline void mul_2pow_in_word(const NumTy in[], size_t len, NumTy out[], int pow, const Executor &exec) noexcept
+            {
+                if (0 == len)
+                {
+                    return;
+                }
+                if (0 == pow && in != out)
+                {
+                    std::copy(in, in + len, out);
+                    return;
+                }
+            }
             inline void abs_mul_basic_bin(const uint64_t in1[], size_t len1, const uint64_t in2[], size_t len2, uint64_t out[])
             {
                 auto p1 = reinterpret_cast<const uint32_t *>(in1);
@@ -3259,17 +3485,17 @@ namespace hint
 
                 size_t len = len1 + len2 - 1;
                 size_t conv_len = NTT1::findFitLen(len);
-                std::vector<uint64_t> conv1(conv_len), temp(conv_len);
+                std::vector<NumTy> conv1(conv_len), temp(conv_len);
                 std::copy(in1, in1 + len1, conv1.data());
                 std::copy(in2, in2 + len2, temp.data());
                 NTT1::convolution(conv1.data(), temp.data(), len1, len2, conv_len, inv1);
 
-                std::vector<uint64_t> conv2(conv_len);
+                std::vector<NumTy> conv2(conv_len);
                 std::copy(in1, in1 + len1, conv2.data());
                 std::copy(in2, in2 + len2, temp.data());
                 NTT2::convolution(conv2.data(), temp.data(), len1, len2, conv_len, inv2);
 
-                std::vector<uint64_t> conv3(conv_len);
+                std::vector<NumTy> conv3(conv_len);
                 std::copy(in1, in1 + len1, conv3.data());
                 std::copy(in2, in2 + len2, temp.data());
                 NTT3::convolution(conv3.data(), temp.data(), len1, len2, conv_len, inv3);
@@ -3280,54 +3506,217 @@ namespace hint
                     carry += CRTMod3T<MOD1, MOD2, MOD3>::crt3(conv1[i], conv2[i], conv3[i]);
                     out[i] = exec.divRemBase(carry);
                 }
-                out[len] = uint64_t(carry);
+                out[len] = NumTy(carry);
+            }
+
+            template <typename NumTy, typename Executor>
+            inline void abs_mul(const NumTy in1[], size_t len1, const NumTy in2[], size_t len2, NumTy out[],
+                                const Executor &exec)
+            {
+                if (0 == len1 || 0 == len2 || nullptr == in1 || nullptr == in2)
+                {
+                    return;
+                }
+                if ((len1 + len2 <= KARATSUBA_THRESHOLD) || (len1 <= BASIC_THRESHOLD) || (len2 <= BASIC_THRESHOLD))
+                {
+                    abs_mul_karatusba(in1, len1, in2, len2, out, exec);
+                }
+                else
+                {
+                    abs_mul_ntt(in1, len1, in2, len2, out, exec);
+                }
             }
         }
         namespace division
         {
             // out = in / divisor, return remainder
             template <typename NumTy, typename Executor>
-            inline NumTy abs_div_num(const NumTy in[], size_t len, NumTy out[], NumTy divisor, Executor &exec)
+            inline NumTy abs_div_num(const NumTy in[], size_t len, NumTy out[], NumTy divisor, const Executor &exec)
             {
                 assert(divisor > 0);
                 assert(exec.checkDivisor(divisor));
+                if (1 == divisor)
+                {
+                    if (nullptr != out && in != out)
+                    {
+                        hint_memcpy_n(in, out, len);
+                    }
+                    return 0;
+                }
                 const utility::DivExecutor<NumTy> div_exe{divisor};
                 size_t i = len;
                 NumTy remainder = 0;
-                while (i > 0)
+                if (nullptr != out)
                 {
-                    i--;
-                    NumTy hi, lo;
-                    exec.dualBaseToBin(remainder, in[i], lo, hi);
-                    out[i] = div_exe.divRem(hi, lo, remainder);
+                    while (i > 0)
+                    {
+                        i--;
+                        NumTy hi, lo;
+                        exec.dualBaseToBin(remainder, in[i], lo, hi);
+                        out[i] = div_exe.divRem(hi, lo, remainder);
+                    }
+                }
+                else
+                {
+                    while (i > 0)
+                    {
+                        i--;
+                        NumTy hi, lo;
+                        exec.dualBaseToBin(remainder, in[i], lo, hi);
+                        div_exe.divRem(hi, lo, remainder);
+                    }
                 }
                 return remainder;
             }
 
+            template <typename NumTy>
+            constexpr int norm_shift_bit(NumTy divisor, NumTy half_base)
+            {
+                if (divisor >= half_base)
+                {
+                    return 0;
+                }
+                int divisor_bit = hint_log2(divisor);
+                int halfbase_bit = hint_log2(half_base);
+                int shift = halfbase_bit - divisor_bit;
+                divisor <<= shift;
+                if (divisor < half_base)
+                {
+                    shift++;
+                }
+                return shift;
+            }
+
             template <typename NumTy, typename Executor>
-            inline void abs_div_basic(NumTy dividend[], size_t len1, const NumTy divisor[], size_t len2,
-                                      NumTy quotient[], Executor &exec)
+            [[nodiscard]] inline NumTy divisor_normalize(NumTy divisor[], size_t len, const Executor &exec)
+            {
+                assert(len > 0);
+                int shift = norm_shift_bit(divisor[len - 1], exec.halfBase());
+                if (shift == 0)
+                {
+                    return 1;
+                }
+                NumTy factor = NumTy(1) << shift;
+                auto carry = multiplication::abs_mul_add_num(divisor, len, divisor, factor, NumTy(0), exec);
+                assert(carry == 0);
+                return factor;
+            }
+
+            // Only consider quotient len = len1 - len2
+            template <typename NumTy, typename WorkMem = std::vector<NumTy>, typename Executor>
+            inline void abs_div_basic_core(NumTy dividend[], size_t len1, const NumTy divisor[], size_t len2,
+                                           NumTy quotient[], const Executor &exec)
             {
                 len2 = utility::count_ture_length(divisor, len2);
                 assert(len2 > 0);
                 assert(divisor[len2 - 1] >= exec.halfBase());
                 if (len2 == 1)
                 {
-                    NumTy rem = abs_div_num_norm(dividend, len1, quotient, divisor[0], exec);
-                    dividend[0] = rem;
+                    dividend[0] = abs_div_num(dividend, len1, quotient, divisor[0], exec);
+                    std::fill_n(dividend + 1, len1 - 1, NumTy(0));
                     return;
                 }
                 assert(len1 >= len2);
+                const NumTy divisor_hi = divisor[len2 - 1], divisor_lo = divisor[len2 - 2];
+                const utility::DivExecutor<NumTy> div_exe{divisor_hi};
+                auto quot_guess = [div_exe, divisor_hi, divisor_lo, exec](NumTy hi, NumTy mi, NumTy lo) -> NumTy
+                {
+                    NumTy qhat, prod_hi, prod_lo;
+                    if (hi == divisor_hi)
+                    {
+                        qhat = exec.maxNum();
+                    }
+                    else if (hi < divisor_hi)
+                    {
+                        exec.dualBaseToBin(hi, mi, mi, hi);
+                        qhat = div_exe.divRem(hi, mi, mi);
+                        exec.mulInBase(qhat, divisor_lo, prod_lo, prod_hi); // prod = qhat * divisor_lo
+                        if (utility::cmp2_less(mi, lo, prod_hi, prod_lo))
+                        {
+                            qhat--;
+                            mi += divisor_hi;
+                            bool bf;
+                            prod_lo = exec.subHalf(prod_lo, divisor_lo, bf);
+                            prod_hi -= bf;
+                            if (mi >= divisor_hi && utility::cmp2_less(mi, lo, prod_hi, prod_lo))
+                            {
+                                qhat--;
+                            }
+                        }
+                    }
+                    else
+                    {
+                        assert(hi > divisor_hi);
+                    }
+                    return qhat;
+                };
+                WorkMem prod(len2 + 1);
+                size_t quot_idx = len1 - len2;
+                while (quot_idx > 0)
+                {
+                    quot_idx--;
+                    auto dividend_begin = dividend + quot_idx;
+                    NumTy hi = dividend_begin[len2], mi = dividend_begin[len2 - 1], lo = dividend_begin[len2 - 2];
+                    NumTy qhat = quot_guess(hi, mi, lo);
+                    if (qhat > 0)
+                    {
+                        size_t divd_len = utility::count_ture_length(dividend_begin, len2 + 1);
+                        prod[len2] = multiplication::abs_mul_add_num(divisor, len2, prod.data(), qhat, NumTy(0), exec);
+                        size_t prod_len = prod[len2] > 0 ? len2 + 1 : len2;
+                        bool borrow = addition::abs_sub(dividend_begin, len2 + 1, prod.data(), prod_len, dividend_begin, exec);
+                        if (borrow)
+                        {
+                            qhat--;
+                            while (!addition::abs_add(dividend_begin, len2 + 1, divisor, len2, dividend_begin, exec, false))
+                            {
+                                qhat--;
+                            }
+                        }
+                    }
+                    if (nullptr != quotient)
+                    {
+                        quotient[quot_idx] = qhat;
+                    }
+                }
             }
 
             template <typename NumTy, typename Executor>
-            inline void abs_div_rec(const NumTy in[], size_t len, NumTy out[], NumTy divisor, Executor &exec)
+            inline void abs_div_rec(const NumTy in[], size_t len, NumTy out[], NumTy divisor, const Executor &exec)
             {
             }
 
-            template <typename NumTy, typename Executor>
-            inline void abs_div(const NumTy in[], size_t len, NumTy out[], NumTy divisor, Executor &exec)
+            template <typename NumTy, typename WorkMem = std::vector<NumTy>, typename Executor>
+            inline void abs_div(const NumTy dividend[], size_t len1, const NumTy divisor[], size_t len2,
+                                NumTy quotient[], NumTy rem[], const Executor &exec)
             {
+                WorkMem dividend_norm(len1 + 1), divisor_norm(divisor, divisor + len2);
+                NumTy factor = divisor_normalize(divisor_norm.data(), len2, exec);
+                dividend_norm[len1] = multiplication::abs_mul_add_num(dividend, len1, dividend_norm.data(), factor, NumTy(0), exec);
+                len1 = utility::count_ture_length(dividend_norm.data(), len1 + 1);
+                if (len1 >= len2)
+                {
+                    size_t quot_idx = len1 - len2;
+                    if (utility::abs_compare(dividend_norm.data() + quot_idx, len2, divisor_norm.data(), len2) >= 0)
+                    {
+                        if (nullptr != quotient)
+                        {
+                            quotient[quot_idx] = 1;
+                        }
+                        addition::abs_sub(dividend_norm.data() + quot_idx, len2, divisor_norm.data(), len2, dividend_norm.data() + quot_idx, exec);
+                    }
+                    else if (nullptr != quotient)
+                    {
+                        quotient[quot_idx] = 0;
+                    }
+                }
+                abs_div_basic_core(dividend_norm.data(), len1, divisor_norm.data(), len2, quotient, exec);
+                if (nullptr != rem)
+                {
+                    utility::remove_leading_zeros(dividend_norm.data(), len1);
+                    assert(len1 <= len2);
+                    abs_div_num(dividend_norm.data(), len1, rem, factor, exec);
+                    std::fill(rem + len1, rem + len2, NumTy(0));
+                }
             }
         }
         namespace base_conversion
@@ -3335,20 +3724,27 @@ namespace hint
 
         }
     }
-    using arithm::multiplication::BASIC_THRESHOLD;
-    using arithm::multiplication::KARATSUBA_THRESHOLD;
     template <typename NumTy, typename Container, typename BaseExecutor, NumTy BASE>
     class HyperIntImpl
     {
     public:
         using Num = NumTy;
         using HyperUint = HyperIntImpl;
+        using Byte = unsigned char;
+
+        static constexpr int LIMB_BYTES = sizeof(Num);
+        static constexpr int LIMB_BITS = LIMB_BYTES * CHAR_BIT;
+        static constexpr Byte BYTE_MAX = std::numeric_limits<Byte>::max();
 
         HyperIntImpl() = default;
-        HyperIntImpl(const NumTy &n)
+        HyperIntImpl(const Num &n)
         {
             data.reserve(2);
             data.push_back(n);
+        }
+        HyperIntImpl(const NumTy arr[], size_t len)
+        {
+            data.assign(arr, arr + len);
         }
         HyperIntImpl(const HyperUint &other) = default;
         HyperIntImpl(HyperUint &&other) = default;
@@ -3366,14 +3762,110 @@ namespace hint
             return data.size();
         }
 
-        NumTy *limbPtr()
+        Num *limbPtr()
         {
             return data.data();
         }
 
-        const NumTy *limbPtr() const
+        const Num *limbPtr() const
         {
             return data.data();
+        }
+
+        void fromBytes(const Byte *bytes, size_t len)
+        {
+            size_t limbs = (len + LIMB_BITS + 1) / LIMB_BYTES;
+            data.resize(limbs);
+            data.back() = 0;
+            for (size_t i = 0; i < len; i++)
+            {
+                setNthByte(i, bytes[i]);
+            }
+            shrinkLeadingZeros();
+        }
+
+        size_t toBytes(Byte *bytes, size_t len) const
+        {
+            size_t bytes_len = byteSize();
+            len = std::min(len, bytes_len);
+            for (size_t i = 0; i < len; i++)
+            {
+                bytes[i] = getNthByte(i);
+            }
+            return len;
+        }
+
+        size_t byteSize() const
+        {
+            if (isZero())
+            {
+                return 0;
+            }
+            size_t bits = bitSize();
+            return (bits + CHAR_BIT - 1) / CHAR_BIT;
+        }
+        size_t bitSize() const
+        {
+            if (isZero())
+            {
+                return 0;
+            }
+            size_t limbs = data.size();
+            Num last_limb = data.back();
+            size_t bits = (limbs - 1) * LIMB_BITS;
+            bits += hint_bit_length(last_limb);
+            return bits;
+        }
+
+        Byte getNthByte(size_t n) const
+        {
+            size_t nth_limb = n / LIMB_BYTES;
+            size_t nth_byte = n % LIMB_BYTES;
+            Num limb = 0;
+            if (nth_limb < data.size())
+            {
+                limb = data[nth_limb];
+            }
+            return Byte(limb >> (nth_byte * CHAR_BIT));
+        }
+        void setNthByte(size_t n, Byte b)
+        {
+            size_t nth_limb = n / LIMB_BYTES;
+            size_t nth_byte = n % LIMB_BYTES;
+            if (nth_limb >= data.size() && b != 0)
+            {
+                data.reserve(nth_limb * 2);
+                data.resize(nth_limb + 1);
+            }
+            NumTy limb = data[nth_limb];
+            limb &= ~(Num(BYTE_MAX) << (nth_byte * CHAR_BIT));
+            data[nth_limb] = limb | (Num(b) << (nth_byte * CHAR_BIT));
+        }
+
+        bool getNthBit(size_t n) const
+        {
+            size_t nth_limb = n / LIMB_BITS;
+            size_t nth_bit = n % LIMB_BITS;
+            Num limb = 0;
+            if (nth_limb < data.size())
+            {
+                limb = data[nth_limb];
+            }
+            return (limb >> (nth_bit)) & 1;
+        }
+
+        void setNthBit(size_t n, bool b)
+        {
+            size_t nth_limb = n / LIMB_BITS;
+            size_t nth_bit = n % LIMB_BITS;
+            if (nth_limb >= data.size() && !b)
+            {
+                data.reserve(nth_limb * 2);
+                data.resize(nth_limb + 1);
+            }
+            NumTy limb = data[nth_limb];
+            limb &= ~(Num(BYTE_MAX) << (nth_bit));
+            data[nth_limb] = limb | (Num(b) << (nth_bit));
         }
 
         void fromString(const std::string &str)
@@ -3397,6 +3889,10 @@ namespace hint
                 str += char('0' + rem);
             }
             std::reverse(str.begin(), str.end());
+            if (str.empty())
+            {
+                str = "0";
+            }
             return str;
         }
 
@@ -3407,6 +3903,18 @@ namespace hint
             data.resize(add_len);
             arithm::addition::abs_add(limbPtr(), len1, other.limbPtr(), len2, limbPtr(), exec);
             shrinkLeadingZeros();
+            return *this;
+        }
+
+        HyperUint &operator+=(Num other)
+        {
+            if (other > 0)
+            {
+                size_t len1 = limbSize();
+                data.resize(len1 + 1);
+                arithm::addition::abs_add_long_num(limbPtr(), len1, other, limbPtr(), exec);
+                shrinkLeadingZeros();
+            }
             return *this;
         }
 
@@ -3423,19 +3931,28 @@ namespace hint
             return *this;
         }
 
+        HyperUint &operator-=(Num other)
+        {
+            if (other > 0)
+            {
+                size_t len1 = limbSize();
+                assert(len1 > 0);
+                if (len1 == 1)
+                {
+                    assert(data[0] >= other);
+                }
+                arithm::addition::abs_sub_long_num(limbPtr(), len1, other, limbPtr(), exec);
+                shrinkLeadingZeros();
+            }
+            return *this;
+        }
+
         HyperUint &operator*=(const HyperUint &other)
         {
             size_t len1 = data.size(), len2 = other.data.size();
             size_t mul_len = utility::get_mul_len(len1, len2);
             data.resize(mul_len);
-            if (mul_len <= KARATSUBA_THRESHOLD || len1 <= BASIC_THRESHOLD || len2 <= BASIC_THRESHOLD)
-            {
-                arithm::multiplication::abs_mul_karatusba(limbPtr(), len1, other.limbPtr(), len2, limbPtr(), exec);
-            }
-            else
-            {
-                arithm::multiplication::abs_mul_ntt(limbPtr(), len1, other.limbPtr(), len2, limbPtr(), exec);
-            }
+            arithm::multiplication::abs_mul(limbPtr(), len1, other.limbPtr(), len2, limbPtr(), exec);
             shrinkLeadingZeros();
             return *this;
         }
@@ -3448,6 +3965,108 @@ namespace hint
             data[len] = arithm::multiplication::abs_mul_add_num(limbPtr(), len, limbPtr(), other, NumTy{}, exec);
             shrinkLeadingZeros();
             return *this;
+        }
+
+        HyperUint &operator/=(const HyperUint &other)
+        {
+            assert(!other.isZero());
+            size_t len1 = data.size(), len2 = other.data.size();
+            if (*this < other)
+            {
+                data.clear();
+            }
+            else
+            {
+                NumTy *rem = nullptr;
+                arithm::division::abs_div(limbPtr(), len1, other.limbPtr(), len2, limbPtr(), rem, exec);
+                size_t div_len = len1 - len2 + 1;
+                data.resize(div_len);
+                shrinkLeadingZeros();
+            }
+            return *this;
+        }
+        HyperUint &operator%=(const HyperUint &other)
+        {
+            assert(!other.isZero());
+            size_t len1 = data.size(), len2 = other.data.size();
+            if (*this == other)
+            {
+                data.clear();
+            }
+            else if (*this > other)
+            {
+                NumTy *quot = nullptr;
+                arithm::division::abs_div(limbPtr(), len1, other.limbPtr(), len2, quot, limbPtr(), exec);
+                data.resize(len2);
+                shrinkLeadingZeros();
+            }
+            return *this;
+        }
+
+        friend bool operator==(const HyperUint &lhs, const HyperUint &rhs)
+        {
+            size_t len1 = utility::count_ture_length(lhs.limbPtr(), lhs.limbSize());
+            size_t len2 = utility::count_ture_length(rhs.limbPtr(), rhs.limbSize());
+            return utility::abs_compare(lhs.limbPtr(), len1, rhs.limbPtr(), len2) == 0;
+        }
+
+        friend bool operator!=(const HyperUint &lhs, const HyperUint &rhs)
+        {
+            return !(lhs == rhs);
+        }
+
+        friend bool operator<(const HyperUint &lhs, const HyperUint &rhs)
+        {
+            size_t len1 = utility::count_ture_length(lhs.limbPtr(), lhs.limbSize());
+            size_t len2 = utility::count_ture_length(rhs.limbPtr(), rhs.limbSize());
+            return utility::abs_compare(lhs.limbPtr(), len1, rhs.limbPtr(), len2) < 0;
+        }
+
+        friend bool operator>(const HyperUint &lhs, const HyperUint &rhs)
+        {
+            return rhs < lhs;
+        }
+        friend bool operator<=(const HyperUint &lhs, const HyperUint &rhs)
+        {
+            return !(lhs > rhs);
+        }
+
+        friend bool operator>=(const HyperUint &lhs, const HyperUint &rhs)
+        {
+            return !(lhs < rhs);
+        }
+
+        friend HyperUint operator+(HyperUint lhs, const HyperUint &rhs)
+        {
+            return lhs += rhs;
+        }
+        friend HyperUint operator-(HyperUint lhs, const HyperUint &rhs)
+        {
+            return lhs -= rhs;
+        }
+        friend HyperUint operator*(HyperUint lhs, const HyperUint &rhs)
+        {
+            return lhs *= rhs;
+        }
+        friend HyperUint operator/(HyperUint lhs, const HyperUint &rhs)
+        {
+            return lhs /= rhs;
+        }
+        friend HyperUint operator%(HyperUint lhs, const HyperUint &rhs)
+        {
+            return lhs %= rhs;
+        }
+        friend HyperUint operator*(HyperUint lhs, Num rhs)
+        {
+            return lhs *= rhs;
+        }
+        friend HyperUint operator-(HyperUint lhs, Num rhs)
+        {
+            return lhs -= rhs;
+        }
+        friend HyperUint operator+(HyperUint lhs, Num rhs)
+        {
+            return lhs += rhs;
         }
 
         void mulAddNum(Num num_mul, Num num_add)
@@ -3472,9 +4091,45 @@ namespace hint
             data.resize(utility::count_ture_length(limbPtr(), data.size()));
         }
 
-        // HyperUint &operator/=(const HyperUint &other)
-        // {
-        // }
+        HyperUint pow(const HyperUint &exponent, const HyperUint &mod) const
+        {
+            HyperUint result = 1, base = *this;
+            size_t bits = exponent.bitSize();
+            for (size_t i = 0;; ++i)
+            {
+                if (exponent.getNthBit(i))
+                {
+                    result *= base;
+                    result %= mod;
+                }
+                if (i >= bits - 1)
+                {
+                    break;
+                }
+                base *= base;
+                base %= mod;
+            }
+            return result;
+        }
+
+        HyperUint pow(const HyperUint &exponent) const
+        {
+            HyperUint result = 1, base = *this;
+            size_t bits = exponent.bitSize();
+            for (size_t i = 0;; ++i)
+            {
+                if (exponent.getNthBit(i))
+                {
+                    result *= base;
+                }
+                if (i >= bits - 1)
+                {
+                    break;
+                }
+                base *= base;
+            }
+            return result;
+        }
 
     private:
         using Vec = Container;
