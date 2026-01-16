@@ -155,16 +155,20 @@ void test_mul_basic10()
     std::cout << std::endl;
     std::cout << std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count() << "us" << std::endl;
 }
+static std::mt19937 gen(1);
 
 void test_mul_basic()
 {
     using namespace hint;
     using namespace arithm::multiplication;
     using namespace arithm::addition;
+    std::cout << "COPY: " << std::is_trivially_copyable<utility::BaseExecutorBinary<uint64_t>>::value << std::endl;
+
     uint64_t base = 1e19, num = base - 1;
-    // BaseExecutor<uint64_t> exec(base);
-    utility::BaseExecutorBinary<uint64_t> exec;
-    size_t len1 = (1e5), len2 = len1, loop = 1 << 20;
+    std::uniform_int_distribution<uint64_t> dist(0, num);
+    BaseExecutor<uint64_t> exec(base);
+    // BaseExecutorBinary<uint64_t> exec;
+    size_t len1 = 1e4, len2 = len1, loop = 1 << 20;
     // std::cin >> len1 >> len2 >> loop;
     std::vector<uint64_t> a(len1, num);
     std::vector<uint64_t> b(len2, num);
@@ -173,9 +177,7 @@ void test_mul_basic()
     // std::cout << a_p << " " << b_p << std::endl;
     std::vector<uint64_t> c(len1 + len2);
     std::vector<uint64_t> d(len1 + len2);
-    static std::mt19937 gen(1);
     // b = a = {12271144805854719029, 14901432754109524217, 3976023265224744767, 3691743531038793554, 10518674766591855369, 16040479651847935293, 6547057120208965452, 13555195664566830802, 6588984070404368609, 95284951371483940, 14616649413911854801, 908727287399969004, 1122504066081417718, 12597235699414803597, 6487115003628942535, 9016559605287246797, 6501391612429803521, 9335840991529667284, 7536087634734216999, 1096566204796952383, 2521600334672742513, 5327178105255534790, 6563796726199367596, 4264676419002213608, 16152462487545995875, 18022713201819445811, 14989106788728424597, 11889449673523465139, 816205900141760993, 7603667619536851764, 9544754529937541261, 3405619203695849313, 9253668332735781264, 3772883358476565758, 5767975708667686435, 17411129618902945802, 2747094638218966479, 6555570056851783241, 4429752750818721395, 18098432011149379461, 7092532507664853421, 10226239231214421834, 9673825486394464490, 7756997698450048382, 4619110562266398829, 14709072737518605339, 1006481701186435726, 13959947564169318589, 10318185079568189768, 2342163127147520799, 8381760586784675853, 12450498320086370081, 215252575380578374, 5097522528455575746, 4466973776777661050, 12580805000889164358, 5166050641316974184, 4745928933147667131, 9507146309724095926, 10625921511001148772, 3473640986122561753, 7459972929883376396, 10696605722387200250, 5007028558846880153, 624310316918951752, 15344318165583501092, 17221732859175648399, 18277164935840980329, 13688036639861191966, 2422004203947623829, 3337298988363341972, 10237377498548984045, 9528633094567476014, 14751330182012594658, 14144291570796327767, 8635407794992039412, 13929108628708672478, 14793142760908167813, 1258472876168276427, 9347237275004853734};
-    std::uniform_int_distribution<uint64_t> dist(0, num);
     for (auto &&i : a)
     {
         i = dist(gen);
@@ -192,14 +194,14 @@ void test_mul_basic()
     {
         abs_mul_karatusba(a.data(), a.size(), b.data(), b.size(), d.data(), exec);
         // abs_sub(a.data(), a.size(), b.data(), b.size(), a.data(), exec);
-        // carry = abs_add_equal_mul_add_num(a.data(), len1, b.data(), uint64_t(0), num, exec);
+        // carry = abs_mul_add_num(a.data(), len1, b.data(), num, uint64_t(0), exec);
         // abs_mul_basic(a.data(), a.size(), b.data(), b.size(), c.data(), exec);
     }
     auto t2 = std::chrono::steady_clock::now();
     // for (size_t i = 0; i < loop; i++)
     {
         // abs_mul_basic(a.data(), a.size(), b.data(), b.size(), c.data(), exec);
-        abs_mul_ntt(a.data(), a.size(), b.data(), b.size(), c.data(), exec);
+        // abs_mul_ntt(a.data(), a.size(), b.data(), b.size(), c.data(), exec);
         // abs_mul_karatusba1(a.data(), a.size(), b.data(), b.size(), c.data(), exec);
         // abs_mul_basic_bin(a.data(), 40, a.data() + 40, 40, a.data());
         // abs_mul_karatusba(a.data(), a.size(), b.data(), b.size(), d.data(), exec);
@@ -213,7 +215,7 @@ void test_mul_basic()
     {
         // std::cout << *it << " ";
     }
-    // std::cout << carry << std::endl;
+    std::cout << carry << std::endl;
     std::cout << "\n";
     for (auto it = d.rbegin(); it != d.rend(); it++)
     {
@@ -309,16 +311,47 @@ void test_ntt()
 
 void test_hint_str()
 {
+    size_t shift = 90;
     hint::HyperIntHex a, b;
-    a.fromString(std::string(1000000, '9'));
-    b.fromString(std::string(1000000, '7'));
-    std::cout << a.limbSize() << std::endl;
+    a.fromString("2");
+    b.fromString("100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000247");
+    // b.fromString("10000000000000000000000000000000000000121");
+    std::cout << b.limbSize() << std::endl;
     auto t1 = std::chrono::steady_clock::now();
-    a *= b;
+    // a *= b;
+    // a += b;
+    a = a.pow(b - 1, b);
     auto t2 = std::chrono::steady_clock::now();
-    // auto s = a.toString();
-    // std::cout << s << std::endl;
+    // a += b;
+    // a -= b;
+    // a %= b;
+    // size_t len = a.byteSize();
+    a ^= b;
+    // std::vector<uint8_t> c(len);
+    // a.toBytes(c.data(), len);
+    auto s = a.toString();
+    auto t3 = std::chrono::steady_clock::now();
+    // for (size_t i = 0; i < len; i++)
+    //     std::cout << std::hex << (int)c[i] << " ";
+    std::cout << std::endl;
+    // std::cout << std::dec << len << std::endl;
+    std::cout << s << std::endl;
     std::cout << std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count() << "us\n";
+    std::cout << std::chrono::duration_cast<std::chrono::microseconds>(t3 - t2).count() << "us\n";
+}
+
+void test_hint_fromByte()
+{
+    hint::HyperIntHex a;
+    size_t len = 10000;
+    std::vector<uint8_t> b(len, 0xff), c(len);
+    auto t1 = std::chrono::steady_clock::now();
+    a.fromBytes(b.data(), len);
+    auto t2 = std::chrono::steady_clock::now();
+    std::cout << std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count() << "us\n";
+    size_t len1 = a.toBytes(c.data(), len);
+    std::cout << std::boolalpha << (b == c) << std::endl;
+    std::cout << len1 << std::endl;
 }
 
 void test_branch(uint64_t p[], size_t len)
@@ -334,25 +367,153 @@ void test_branch(uint64_t p[], size_t len)
     {
         auto t0 = it0[0].norm2(), t1 = it1[0].norm2();
         auto t2 = it2[0].norm2(), t3 = it3[0].norm2();
-        // hint::transform::transform2(t0, t2);
-        // auto diff = t1.sub(t3);
-        // t1 = t1 + t3;
-        // t3 = diff * omega;
+        hint::transform::transform2(t0, t2);
+        auto diff = t1.sub(t3);
+        t1 = t1 + t3;
+        t3 = diff * omega;
         it0[0] = t0.add(t1), it1[0] = t0.sub(t1), it2[0] = t2.add(t3), it3[0] = t2.sub(t3);
     }
     auto t2 = std::chrono::steady_clock::now();
 }
 
+void test_hint_div()
+{
+    size_t len = 100000;
+    std::uniform_int_distribution<uint64_t> dist(0, UINT64_MAX);
+    std::vector<uint64_t> v1(len), v2(len);
+    for (auto &i : v1)
+    {
+        i = dist(gen);
+    }
+    for (auto &i : v2)
+    {
+        i = dist(gen);
+    }
+    // v1 = {0, 9223372036854775808, 9223372036854775807};
+    // v2 = {UINT64_MAX, 1ull << 63};
+
+    hint::HyperIntHex a(v1.data(), v1.size()), b(v2.data(), v2.size()), c = a;
+    auto t1 = std::chrono::steady_clock::now();
+    a *= b;
+    auto t2 = std::chrono::steady_clock::now();
+    a /= b;
+    auto t3 = std::chrono::steady_clock::now();
+    std::cout << std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count() << "us\n";
+    std::cout << std::chrono::duration_cast<std::chrono::microseconds>(t3 - t2).count() << "us\n";
+    std::cout << std::boolalpha << (a == c) << std::endl;
+    // std::cout << a.toString() << std::endl;
+}
+
+void test_div3by2()
+{
+    uint32_t divid[3] = {0, 1u << 31, (1u << 31) - 1};
+    uint32_t divis[2] = {(1ull << 32) - 1, 1u << 31};
+    uint64_t divid0 = (uint64_t(divid[1]) << 32) | divid[0];
+    auto q = hint::utility::div96by64to32(divid[2], divid0, uint64_t(divis[1]) << 32 | divis[0]);
+    std::cout << q << " " << divid0 << std::endl;
+}
+
+void perf_cmp2()
+{
+    size_t len = 1e3;
+    std::uniform_int_distribution<uint64_t> dist(0, UINT64_MAX);
+    std::vector<uint64_t> v1(len), v2(len);
+    for (auto &i : v1)
+    {
+        i = dist(gen);
+    }
+    for (auto &i : v2)
+    {
+        i = dist(gen);
+    }
+    size_t sum = 0;
+    auto t1 = std::chrono::steady_clock::now();
+    for (size_t loop = 0; loop < 1000000; loop++)
+        for (size_t i = 0; i < len; i += 2)
+        {
+            sum += hint::utility::cmp2_less(v1[i], v1[i + 1], v2[i], v2[i + 1]);
+        }
+    auto t2 = std::chrono::steady_clock::now();
+    std::cout << std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count() << "us\n";
+    std::cout << sum << std::endl;
+}
+
+void test_add()
+{
+    using namespace hint;
+    using namespace arithm::multiplication;
+    using namespace arithm::addition;
+    uint64_t base = 0, num = base - 1;
+    std::uniform_int_distribution<uint64_t> dist(0, num);
+    // BaseExecutor<uint64_t> exec(base);
+    BaseExecutorBinary<uint64_t> exec;
+    size_t len = 1e8;
+    std::vector<uint64_t> v1(len * 2, num), v2(len, num);
+    for (auto &i : v1)
+    {
+        i = dist(gen);
+    }
+    for (auto &i : v2)
+    {
+        i = dist(gen);
+    }
+    auto t1 = std::chrono::steady_clock::now();
+    auto carry = abs_sub(v1.data(), v1.size(), v2.data(), v2.size(), v1.data(), exec);
+    auto t2 = std::chrono::steady_clock::now();
+    std::cout << std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count() << "us\n";
+    // for (auto &i : v1)
+    // {
+    //     std::cout << i << " ";
+    // }
+    // std::cout << std::endl;
+    // std::cout << carry << std::endl;
+}
+
+void test_bitop()
+{
+    size_t len = 1e6;
+    std::uniform_int_distribution<uint64_t> dist(0, UINT64_MAX);
+    std::vector<uint64_t> v1(len), v2(len);
+    for (auto &i : v1)
+    {
+        i = dist(gen);
+    }
+    for (auto &i : v2)
+    {
+        i = dist(gen);
+    }
+    // v1 = {0, 9223372036854775808, 9223372036854775807};
+    // v2 = {UINT64_MAX, 1ull << 63};
+
+    hint::HyperIntHex a(v1.data(), v1.size()), b(v2.data(), v2.size()), c = a;
+    auto t1 = std::chrono::steady_clock::now();
+    a ^= b;
+    auto t2 = std::chrono::steady_clock::now();
+    a |= b;
+    auto t3 = std::chrono::steady_clock::now();
+    std::cout << std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count() << "us\n";
+    std::cout << std::chrono::duration_cast<std::chrono::microseconds>(t3 - t2).count() << "us\n";
+    // std::cout << std::boolalpha << (a == c) << std::endl;
+    // std::cout << a.toString() << std::endl;
+}
+
 int main()
 {
     bind_cpu(0);
+    // test_add();
+    // perf_cmp2();
+    // test_hint_div();
+    // test_div3by2();
     // test_hint_str();
-    test_mul_basic();
+
+    // test_hint_fromByte();
+    // test_mul_basic();
     // test_ntt();
 
     // test_div();
     // test_mul_basic();
     // test_mul_basic10();
     // test_abs_mul_add_num_half();
+    test_bitop();
     std::cin.get();
 }
