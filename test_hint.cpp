@@ -404,6 +404,48 @@ void test_hint_div()
     // std::cout << a.toString() << std::endl;
 }
 
+template <typename T>
+bool check_div(const T &a, const T &b, const T &rem, const T &quot)
+{
+    bool ret1 = (rem < b);
+    auto prod = quot * b;
+    std::cout << "1\n";
+    prod.printRaw();
+    bool ret2 = (prod + rem == a);
+
+    if (!ret1)
+    {
+        std::cout << "Rem err\n";
+    }
+    if (!ret2)
+    {
+        std::cout << "Quot err\n";
+    }
+    return ret1 && ret2;
+}
+
+void test_hint_div2()
+{
+    size_t len = 100;
+    std::uniform_int_distribution<uint64_t> dist(0, UINT64_MAX);
+    std::vector<uint64_t> v1(len * 2, UINT64_MAX), v2(len, UINT64_MAX);
+    // std::fill(v1.begin() + len * 2, v1.end(), UINT64_MAX);
+    hint::HyperIntHex a(v1.data(), v1.size()), b(v2.data(), v2.size()), r, q;
+    auto t1 = std::chrono::steady_clock::now();
+    r = a % b;
+    auto t2 = std::chrono::steady_clock::now();
+    q = a / b;
+    auto t3 = std::chrono::steady_clock::now();
+    std::cout << std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count() << "us\n";
+    std::cout << std::chrono::duration_cast<std::chrono::microseconds>(t3 - t2).count() << "us\n";
+    q.printRaw();
+    r.printRaw();
+    if (check_div(a, b, r, q))
+    {
+        std::cout << "OK\n";
+    }
+}
+
 void test_div3by2()
 {
     uint32_t divid[3] = {0, 1u << 31, (1u << 31) - 1};
@@ -497,6 +539,22 @@ void test_bitop()
     // std::cout << a.toString() << std::endl;
 }
 
+void test_mul()
+{
+    size_t len = 100;
+    std::uniform_int_distribution<uint64_t> dist(0, UINT64_MAX);
+    std::vector<uint64_t> v1(len + 1), v2(len, UINT64_MAX);
+    // std::fill(v1.begin() + len * 2, v1.end(), UINT64_MAX);
+    v1[0] = v1[len] = 1;
+    hint::HyperIntHex a(v1.data(), v1.size()), b(v2.data(), v2.size()), p;
+    auto t1 = std::chrono::steady_clock::now();
+    p = a * b;
+    auto t2 = std::chrono::steady_clock::now();
+    auto t3 = std::chrono::steady_clock::now();
+    std::cout << std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count() << "us\n";
+    std::cout << std::chrono::duration_cast<std::chrono::microseconds>(t3 - t2).count() << "us\n";
+}
+
 int main()
 {
     bind_cpu(0);
@@ -514,6 +572,8 @@ int main()
     // test_mul_basic();
     // test_mul_basic10();
     // test_abs_mul_add_num_half();
-    test_bitop();
+    // test_bitop();
+    test_hint_div2();
+    // test_mul();
     std::cin.get();
 }

@@ -1926,6 +1926,8 @@ namespace hint
                 size_t diff_len = 0;
                 int cmp = 0;
             };
+            len1 = count_ture_length(in1, len1);
+            len2 = count_ture_length(in2, len2);
             CompareResult result;
             if (len1 != len2)
             {
@@ -2059,7 +2061,7 @@ namespace hint
                 static constexpr IntType MOD_INV = inv_mod2pow(MOD, R_BITS);       // MOD^-1 % R
                 static constexpr IntType MOD_INV_NEG = IntType(0) - MOD_INV;       // -MOD^-1 % R
                 static constexpr IntType MOD2 = MOD * 2;                           // MOD * 2
-                static_assert(IntType(MOD * MOD_INV) == 1, "MOD_INV not correct");
+                static_assert(IntType(MOD *MOD_INV) == 1, "MOD_INV not correct");
 
                 constexpr MontIntLazy() = default;
                 constexpr MontIntLazy(IntType n) : data(toMont(n)) {}
@@ -3511,7 +3513,9 @@ namespace hint
                 }
                 // Set pointer of every part
                 auto m = work_begin, n = out + base_len * 2, k1 = m + block_len + 2, k2 = k1 + base_len, k = k1;
+                len1_low = count_ture_length(in1, len1_low);
                 int cmp1 = addition::abs_difference(in1, len1_low, in1_high, len1_high, k1, exec); // k1 = abs(AH - AL)
+                len2_low = count_ture_length(in2, len2_low);
                 int cmp2 = addition::abs_difference(in2, len2_low, in2_high, len2_high, k2, exec); // k2 = abs(BH - BL)
                 size_t k1_len = get_sub_len(len1_low, len1_high);
                 size_t k2_len = get_sub_len(len2_low, len2_high);
@@ -3616,10 +3620,10 @@ namespace hint
                 {
                     abs_mul_basic(in1, len1, in2, len2, out, exec);
                 }
-                else if (len1 + len2 <= KARATSUBA_THRESHOLD)
-                {
-                    abs_mul_karatusba(in1, len1, in2, len2, out, exec);
-                }
+                // else if (len1 + len2 <= KARATSUBA_THRESHOLD)
+                // {
+                //     abs_mul_karatusba(in1, len1, in2, len2, out, exec);
+                // }
                 else
                 {
                     abs_mul_ntt(in1, len1, in2, len2, out, exec);
@@ -3852,10 +3856,23 @@ namespace hint
                         abs_div_basic_core(dividend, len1, divisor, len2, quotient, exec, work_begin, work_end);
                         return;
                     }
-                    const size_t shift = len2 - quot_len; // shift = len2 * 2 - len1, len1 - shift = quot_len * 2
+                    const size_t shift = len2 - quot_len; // shift = len2 * 2 - len1
                     if (utility::abs_compare(dividend + len2, quot_len, divisor + shift, quot_len) >= 0)
                     {
+                        utility::ary_print(divisor, len2);
                         std::fill_n(quotient, quot_len, NumTy(exec.maxNum()));
+                        auto dividend_high = dividend + shift;
+                        auto divisor_high = divisor + shift;
+                        // dividend_high -= (BASE ^ quot_len - 1) * divisor_high;
+                        // dividend_high -= (BASE ^ quot_len) * divisor_high;
+                        // dividend_high += divisor_high;
+                        addition::abs_sub(dividend_high + quot_len, quot_len,
+                                          divisor_high, quot_len,
+                                          dividend_high + quot_len, exec);
+                        dividend_high[quot_len] = addition::abs_add(dividend_high, len1 - shift,
+                                                                    divisor_high, quot_len,
+                                                                    dividend_high, exec, false);
+                        utility::ary_print(dividend, len1);
                     }
                     else
                     {
@@ -4369,6 +4386,10 @@ namespace hint
         void shrinkLeadingZeros()
         {
             data.resize(utility::count_ture_length(limbPtr(), data.size()));
+        }
+        void printRaw() const
+        {
+            utility::ary_print(data.data(), data.size(), true);
         }
 
         HyperUint pow(const HyperUint &exponent, const HyperUint &mod) const
