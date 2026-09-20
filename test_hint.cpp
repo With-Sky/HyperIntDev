@@ -541,7 +541,7 @@ void test_bitop()
 
 void test_mul()
 {
-    size_t len = 100;
+    size_t len = 20;
     std::uniform_int_distribution<uint64_t> dist(0, UINT64_MAX);
     std::vector<uint64_t> v1(len + 1), v2(len, UINT64_MAX);
     // std::fill(v1.begin() + len * 2, v1.end(), UINT64_MAX);
@@ -553,6 +553,7 @@ void test_mul()
     auto t3 = std::chrono::steady_clock::now();
     std::cout << std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count() << "us\n";
     std::cout << std::chrono::duration_cast<std::chrono::microseconds>(t3 - t2).count() << "us\n";
+    p.printRaw();
 }
 
 int main()
@@ -573,7 +574,7 @@ int main()
     // test_mul_basic10();
     // test_abs_mul_add_num_half();
     // test_bitop();
-    test_hint_div2();
-    // test_mul();
+    // test_hint_div2();
+    test_mul();
     std::cin.get();
 }
