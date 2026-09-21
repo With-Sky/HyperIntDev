@@ -3134,7 +3134,7 @@ namespace hint
                 {
                     exe.addCfX4(a + i, sum + i, carry);
                 }
-                for (; i < carry && len; i++)
+                for (; carry && i < len; i++)
                 {
                     sum[i] = exe.addCf(a[i], carry);
                 }
@@ -3199,7 +3199,7 @@ namespace hint
                 {
                     diff[i] = exe.subBf(a[i], borrow);
                 }
-                std::copy(a + i, a + len, diff + i);
+                hint_copy(a + i, a + len, diff + i);
                 return borrow;
             }
 
@@ -3266,7 +3266,7 @@ namespace hint
         {
             using namespace utility;
             constexpr size_t STACK_MAX_LEN = 1024;
-            constexpr size_t BASIC_THRESHOLD = 32;
+            constexpr size_t BASIC_THRESHOLD = 16;
             constexpr size_t KARATSUBA_THRESHOLD = 2048;
 
             // out = in * num_mul + num_add, return carry
@@ -3499,8 +3499,6 @@ namespace hint
                 }
                 auto in1_high = in1 + len1_low, in2_high = in2 + len2_low;
                 // Get length of every part
-                size_t m_len = get_mul_len(len1_low, len2_low);
-                size_t n_len = get_mul_len(len1_high, len2_high);
 
                 // Get enough work_mem
                 WorkMem work_mem;
@@ -3523,6 +3521,8 @@ namespace hint
                 work_begin += work_size;
                 abs_mul_karatusba(in1, len1_low, in2, len2_low, m, exec, work_begin, work_end);             // M = AL * BL
                 abs_mul_karatusba(in1_high, len1_high, in2_high, len2_high, n, exec, work_begin, work_end); // N = AH * BH
+                size_t m_len = get_mul_len(len1_low, len2_low);
+                size_t n_len = get_mul_len(len1_high, len2_high);
                 remove_leading_zeros(m, m_len);
                 remove_leading_zeros(n, n_len);
                 abs_mul_karatusba(k1, k1_len, k2, k2_len, k, exec, work_begin, work_end); // K = K1 * K2
@@ -3620,10 +3620,10 @@ namespace hint
                 {
                     abs_mul_basic(in1, len1, in2, len2, out, exec);
                 }
-                // else if (len1 + len2 <= KARATSUBA_THRESHOLD)
-                // {
-                //     abs_mul_karatusba(in1, len1, in2, len2, out, exec);
-                // }
+                else if (len1 + len2 <= KARATSUBA_THRESHOLD)
+                {
+                    abs_mul_karatusba(in1, len1, in2, len2, out, exec);
+                }
                 else
                 {
                     abs_mul_ntt(in1, len1, in2, len2, out, exec);
@@ -3859,7 +3859,6 @@ namespace hint
                     const size_t shift = len2 - quot_len; // shift = len2 * 2 - len1
                     if (utility::abs_compare(dividend + len2, quot_len, divisor + shift, quot_len) >= 0)
                     {
-                        utility::ary_print(divisor, len2);
                         std::fill_n(quotient, quot_len, NumTy(exec.maxNum()));
                         auto dividend_high = dividend + shift;
                         auto divisor_high = divisor + shift;
@@ -3872,7 +3871,6 @@ namespace hint
                         dividend_high[quot_len] = addition::abs_add(dividend_high, len1 - shift,
                                                                     divisor_high, quot_len,
                                                                     dividend_high, exec, false);
-                        utility::ary_print(dividend, len1);
                     }
                     else
                     {

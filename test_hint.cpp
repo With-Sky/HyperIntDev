@@ -574,7 +574,7 @@ int main()
     // test_mul_basic10();
     // test_abs_mul_add_num_half();
     // test_bitop();
-    // test_hint_div2();
-    test_mul();
+    test_hint_div2();
+    // test_mul();
     std::cin.get();
 }
