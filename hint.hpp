@@ -3699,6 +3699,48 @@ namespace hint
                 return remainder;
             }
 
+            // out = in / divisor, return remainder
+            template <typename NumTy, typename Executor>
+            inline NumTy abs_div_num_norm(const NumTy in[], size_t len, NumTy out[], NumTy divisor, const Executor &exec)
+            {
+                assert(divisor > 0);
+                assert(exec.checkDivisor(divisor));
+                assert(divisor >= exec.halfBase());
+                assert(in[len - 1] < divisor);
+                if (1 == divisor)
+                {
+                    if (nullptr != out && in != out)
+                    {
+                        std::copy_n(in, len, out);
+                    }
+                    return 0;
+                }
+                const utility::DivExecutor<NumTy> div_exe{divisor};
+                size_t i = len - 1;
+                NumTy remainder = in[i];
+                if (nullptr != out)
+                {
+                    while (i > 0)
+                    {
+                        i--;
+                        NumTy hi, lo;
+                        exec.dualBaseToBin(remainder, in[i], lo, hi);
+                        out[i] = div_exe.divRem(hi, lo, remainder);
+                    }
+                }
+                else
+                {
+                    while (i > 0)
+                    {
+                        i--;
+                        NumTy hi, lo;
+                        exec.dualBaseToBin(remainder, in[i], lo, hi);
+                        div_exe.divRem(hi, lo, remainder);
+                    }
+                }
+                return remainder;
+            }
+
             template <typename NumTy>
             constexpr int norm_shift_bit(NumTy divisor, NumTy half_base)
             {
@@ -3749,7 +3791,7 @@ namespace hint
                     }
                     if (len2 == 1)
                     {
-                        dividend[0] = abs_div_num(dividend, len1, quotient, divisor[0], exec);
+                        dividend[0] = abs_div_num_norm(dividend, len1, quotient, divisor[0], exec);
                         std::fill_n(dividend + 1, len1 - 1, NumTy(0));
                         return;
                     }
@@ -3953,27 +3995,35 @@ namespace hint
             inline void abs_div(const NumTy dividend[], size_t len1, const NumTy divisor[], size_t len2,
                                 NumTy quotient[], NumTy rem[], const Executor &exec)
             {
+                if (1 == len2)
+                {
+                    NumTy rem = abs_div_num(dividend, len1, quotient, divisor[0], exec);
+                    if (nullptr != rem)
+                    {
+                        rem[0] = rem;
+                    }
+                    return;
+                }
                 WorkMem dividend_norm(len1 + 1), divisor_norm(divisor, divisor + len2);
+                size_t quot_len = len1 - len2 + 1;
                 NumTy factor = divisor_normalize(divisor_norm.data(), len2, exec);
                 dividend_norm[len1] = multiplication::abs_mul_add_num(dividend, len1, dividend_norm.data(), factor, NumTy(0), exec);
                 len1 = utility::count_ture_length(dividend_norm.data(), len1 + 1);
                 if (len1 >= len2)
                 {
-                    size_t quot_idx = len1 - len2;
-                    if (utility::abs_compare(dividend_norm.data() + quot_idx, len2, divisor_norm.data(), len2) >= 0)
+                    if (utility::abs_compare(dividend_norm.data() + quot_len - 1, len2, divisor_norm.data(), len2) >= 0)
                     {
                         if (nullptr != quotient)
                         {
-                            quotient[quot_idx] = 1;
+                            quotient[quot_len - 1] = 1;
                         }
-                        addition::abs_sub(dividend_norm.data() + quot_idx, len2, divisor_norm.data(), len2, dividend_norm.data() + quot_idx, exec);
+                        addition::abs_sub(dividend_norm.data() + quot_len - 1, len2, divisor_norm.data(), len2, dividend_norm.data() + quot_len - 1, exec);
                     }
                     else if (nullptr != quotient)
                     {
-                        quotient[quot_idx] = 0;
+                        quotient[quot_len - 1] = 0;
                     }
                 }
-                // abs_div_basic_core(dividend_norm.data(), len1, divisor_norm.data(), len2, quotient, exec);
                 AbsDivCore<NumTy, WorkMem, Executor>::abs_div_rec_core(dividend_norm.data(), len1, divisor_norm.data(), len2, quotient, exec);
                 if (nullptr != rem)
                 {
