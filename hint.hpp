@@ -3997,10 +3997,10 @@ namespace hint
             {
                 if (1 == len2)
                 {
-                    NumTy rem = abs_div_num(dividend, len1, quotient, divisor[0], exec);
+                    NumTy rem_num = abs_div_num(dividend, len1, quotient, divisor[0], exec);
                     if (nullptr != rem)
                     {
-                        rem[0] = rem;
+                        rem[0] = rem_num;
                     }
                     return;
                 }
